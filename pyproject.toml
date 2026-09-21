@@ -21,6 +21,7 @@ dev = ["pytest>=7.4"]
 
 [project.scripts]
 chartfinder = "chartfinder.cli:app"
+chartfinder-ui = "chartfinder.ui:main"
 
 [build-system]
 requires = ["setuptools>=68"]

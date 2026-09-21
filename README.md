@@ -52,6 +52,22 @@ chartfinder status -m kr
 
 조건 문법은 `키:파라미터=값,파라미터=값,weight=가중치`. 파라미터를 생략하면 기본값을 쓴다.
 
+## 사용법 (데스크톱 창)
+
+파이썬 기본 내장 tkinter로 만든 창. 별도 설치나 브라우저 없이 바로 뜬다.
+
+```bash
+chartfinder-ui
+# 또는
+python -m chartfinder.ui
+```
+
+- 위쪽에서 시장/유니버스를 고르고 **데이터 받기** → 끝나면 **검색**
+- 왼쪽 조건을 체크하면 파라미터 입력칸이 펼쳐진다 (가중치도 여기서)
+- 결과 행을 **더블클릭**하면 캔들차트가 브라우저에 열린다
+- 프리셋 불러오기, CSV 저장 지원
+- 수집·검색은 별도 스레드에서 돌아가므로 창이 멈추지 않는다
+
 ## 사용법 (웹 UI)
 
 ```bash
@@ -110,7 +126,9 @@ chartfinder/
   scoring.py     근접도 점수 함수 (soft_lt / soft_gt / ordered ...)
   conditions/    조건 레지스트리 — 파라미터 스키마가 UI/CLI를 자동 생성
   screener.py    전 종목 채점 + 가중 랭킹
+  charts.py      캔들차트 (두 UI가 공유)
   cli.py         커맨드라인
+  ui.py          tkinter 데스크톱 창
   app.py         Streamlit 웹 UI
 presets/         조건 세트 YAML
 ```
@@ -122,6 +140,8 @@ presets/         조건 세트 YAML
 ```bash
 pytest
 ```
+
+UI 테스트는 tkinter나 디스플레이가 없는 환경에서는 자동으로 건너뛴다.
 
 ## 알아둘 점
 

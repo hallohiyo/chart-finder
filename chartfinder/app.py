@@ -8,16 +8,14 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-import pandas as pd
-import plotly.graph_objects as go
 import streamlit as st
-from plotly.subplots import make_subplots
 
 # `streamlit run chartfinder/app.py` 는 스크립트 폴더만 sys.path 에 넣으므로
 # 패키지를 설치하지 않고도 실행되도록 저장소 루트를 추가한다.
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from chartfinder import cache, indicators as ind, presets as presets_mod
+from chartfinder import cache, presets as presets_mod
+from chartfinder.charts import candle_chart
 from chartfinder.conditions import by_category, get as get_condition
 from chartfinder.datasource import MARKETS, universes
 from chartfinder.presets import Preset
@@ -90,45 +88,6 @@ def condition_builder(defaults: dict[str, dict]) -> list[ConditionSpec]:
                         )
                 specs.append(ConditionSpec(key=cond.key, params=values, weight=weight))
     return specs
-
-
-# --------------------------------------------------------------------------- 차트
-
-
-def candle_chart(df: pd.DataFrame, title: str, months: int = 12) -> go.Figure:
-    view = df.tail(months * 21)
-    fig = make_subplots(
-        rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.03,
-        row_heights=[0.75, 0.25],
-    )
-    fig.add_trace(
-        go.Candlestick(
-            x=view.index, open=view["open"], high=view["high"],
-            low=view["low"], close=view["close"], name="가격",
-            increasing_line_color="#d62728", decreasing_line_color="#1f77b4",
-        ),
-        row=1, col=1,
-    )
-    for period, color in ((20, "#ff7f0e"), (60, "#2ca02c"), (120, "#9467bd")):
-        if len(df) >= period:
-            fig.add_trace(
-                go.Scatter(
-                    x=view.index, y=ind.sma(df["close"], period).reindex(view.index),
-                    name=f"MA{period}", line=dict(width=1.2, color=color),
-                ),
-                row=1, col=1,
-            )
-    fig.add_trace(
-        go.Bar(x=view.index, y=view["volume"], name="거래량", marker_color="#b0b7c3"),
-        row=2, col=1,
-    )
-    fig.update_layout(
-        title=title, height=560, margin=dict(l=10, r=10, t=40, b=10),
-        xaxis_rangeslider_visible=False, showlegend=True,
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, x=0),
-    )
-    fig.update_xaxes(rangebreaks=[dict(bounds=["sat", "mon"])])
-    return fig
 
 
 # --------------------------------------------------------------------------- 사이드바
