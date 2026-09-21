@@ -224,3 +224,40 @@ def test_krx_flows_return_empty_when_range_is_invalid(krx, monkeypatch):
 
     future = date.today() + pd.Timedelta(days=30).to_pytimedelta()
     assert krx.fetch_flows("005930", future, future).empty
+
+
+def test_krx_falls_back_to_naver_when_pykrx_is_empty(krx, monkeypatch):
+    """KRX 가 빈 응답을 주면 네이버로 넘어가야 한다."""
+    stock = types.ModuleType("stock")
+    stock.get_market_trading_volume_by_date = lambda *a, **k: pd.DataFrame()
+    pykrx = types.ModuleType("pykrx")
+    pykrx.stock = stock
+    monkeypatch.setitem(sys.modules, "pykrx", pykrx)
+
+    index = pd.bdate_range("2026-09-14", periods=5)
+    naver_result = pd.DataFrame(
+        {"foreign_net": [1.0] * 5, "inst_net": [2.0] * 5}, index=index
+    )
+    from chartfinder.datasource import naver_flows
+
+    monkeypatch.setattr(naver_flows, "fetch", lambda *a, **k: naver_result)
+
+    flows = krx.fetch_flows("005930", date(2026, 9, 14), date.today())
+    assert not flows.empty
+    assert flows["foreign_net"].iloc[0] == 1.0
+
+
+def test_krx_reports_both_providers_when_both_fail(krx, monkeypatch):
+    stock = types.ModuleType("stock")
+    stock.get_market_trading_volume_by_date = lambda *a, **k: pd.DataFrame()
+    pykrx = types.ModuleType("pykrx")
+    pykrx.stock = stock
+    monkeypatch.setitem(sys.modules, "pykrx", pykrx)
+
+    from chartfinder.datasource import naver_flows
+
+    monkeypatch.setattr(naver_flows, "fetch", lambda *a, **k: pd.DataFrame())
+
+    with pytest.raises(RuntimeError) as err:
+        krx.fetch_flows("005930", date(2026, 9, 14), date.today())
+    assert "pykrx" in str(err.value) and "naver" in str(err.value)

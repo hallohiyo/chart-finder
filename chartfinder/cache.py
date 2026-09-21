@@ -23,6 +23,9 @@ from .datasource.base import FLOW_COLUMNS
 OVERLAP_DAYS = 7
 #: 종목 목록 캐시 유효기간
 TICKER_TTL_DAYS = 7
+#: 수급을 처음 받을 때 거슬러 올라갈 일수.
+#: 수급 조건이 보는 구간은 길어야 수십 일이라 시세만큼 길게 받을 이유가 없다.
+FLOW_HISTORY_DAYS = 120
 
 ProgressFn = Callable[[int, int, str], None]
 
@@ -261,7 +264,8 @@ def _flow_start(df: pd.DataFrame, fallback: date) -> date:
         filled = df[present].dropna(how="all")
         if len(filled):
             return filled.index[-1].date() - timedelta(days=OVERLAP_DAYS)
-    return max(fallback, df.index[0].date())
+    earliest = date.today() - timedelta(days=FLOW_HISTORY_DAYS)
+    return max(fallback, df.index[0].date(), earliest)
 
 
 def _last_expected_session(today: date) -> date:

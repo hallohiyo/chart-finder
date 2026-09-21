@@ -66,11 +66,37 @@ class KrxSource(DataSource):
         return normalize_ohlcv(df)
 
     def fetch_flows(self, symbol: str, start: date, end: date) -> pd.DataFrame:
-        """외국인·기관·개인 일별 순매수 (주식 수). pykrx 사용.
+        """외국인·기관 일별 순매수 (주식 수).
 
-        KRX 일별추이 조회는 미래 날짜나 긴 기간을 넣으면 빈 응답을 주므로,
-        종료일을 오늘로 자르고 FLOW_CHUNK_DAYS 단위로 나눠 요청한다.
+        KRX 일별추이(pykrx)를 먼저 시도하고, 빈 응답이면 네이버 금융으로 넘어간다.
+        KRX 쪽은 차단·엔드포인트 변경으로 빈 응답을 주는 일이 잦다.
         """
+        end = min(end, date.today())
+        if start > end:
+            return pd.DataFrame()
+
+        errors: list[str] = []
+        for name, fetcher in (("pykrx", self._flows_pykrx), ("naver", self._flows_naver)):
+            try:
+                flows = fetcher(symbol, start, end)
+            except Exception as exc:
+                errors.append(f"{name}: {type(exc).__name__}: {exc}")
+                continue
+            if flows is not None and not flows.empty:
+                return flows
+            errors.append(f"{name}: 빈 응답")
+
+        if errors:
+            raise RuntimeError(" / ".join(errors))
+        return pd.DataFrame()
+
+    def _flows_naver(self, symbol: str, start: date, end: date) -> pd.DataFrame:
+        from . import naver_flows
+
+        return naver_flows.fetch(symbol, start, end)
+
+    def _flows_pykrx(self, symbol: str, start: date, end: date) -> pd.DataFrame:
+        """KRX 일별추이. 긴 기간은 빈 응답을 주므로 FLOW_CHUNK_DAYS 단위로 나눈다."""
         if self._pykrx is None:
             try:
                 from pykrx import stock
@@ -80,10 +106,6 @@ class KrxSource(DataSource):
                 ) from exc
 
             self._pykrx = stock
-
-        end = min(end, date.today())
-        if start > end:
-            return pd.DataFrame()
 
         frames = []
         cursor = start

@@ -14,6 +14,8 @@ dependencies = [
     "finance-datareader>=0.9.50",
     "yfinance>=0.2.40",
     "pykrx>=1.0.45",
+    "requests>=2.31",
+    "lxml>=4.9",
 ]
 
 [project.optional-dependencies]

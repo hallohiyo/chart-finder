@@ -189,15 +189,28 @@ def doctor(
             start.strftime("%Y%m%d"), end.strftime("%Y%m%d"), symbol
         )
 
-    raw = step(f"수급 원본 응답 ({symbol})", raw_flows)
+    raw = step(f"수급 · KRX 원본 응답 ({symbol})", raw_flows)
     if raw is not None:
         console.print(f"   {len(raw)}행 · 컬럼: {list(raw.columns)}")
         if len(raw):
             console.print(f"[dim]{raw.tail(3)}[/]")
         else:
-            console.print("[yellow]   응답이 비어 있습니다 (KRX 차단·기간 제한·휴장일 가능)[/]")
+            console.print("[yellow]   KRX 응답이 비어 있습니다 (차단·엔드포인트 변경 가능)[/]")
 
-    flows = step(f"수급 정규화 ({symbol})", lambda: source.fetch_flows(symbol, start, end))
+    def naver_flows_call():
+        from .datasource import naver_flows
+
+        return naver_flows.fetch(symbol, start, end)
+
+    naver = step(f"수급 · 네이버 ({symbol})", naver_flows_call)
+    if naver is not None:
+        console.print(f"   {len(naver)}행 · 컬럼: {list(naver.columns)}")
+        if len(naver):
+            console.print(f"[dim]{naver.tail(3)}[/]")
+        else:
+            console.print("[yellow]   네이버 응답도 비어 있습니다 (표 구조 변경 가능)[/]")
+
+    flows = step(f"수급 최종 ({symbol})", lambda: source.fetch_flows(symbol, start, end))
     if flows is not None and not flows.empty:
         console.print(f"   {len(flows)}행 · 컬럼: {list(flows.columns)}")
         console.print(f"[dim]{flows.tail(3)}[/]")
