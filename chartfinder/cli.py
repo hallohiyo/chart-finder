@@ -340,17 +340,21 @@ def scan(
                       "캐시가 비어 있다면 먼저 `chartfinder update` 를 실행하세요.")
         raise typer.Exit(code=0)
 
+    all_score_cols = [c for c in result.columns if c.startswith("s_")]
+    # 조건이 많으면 가로로 욱여넣지 않고 종목별 내역으로 따로 보여준다
+    inline_scores = detail and len(all_score_cols) <= 5
+    score_cols = all_score_cols if inline_scores else []
+
     table = Table(show_lines=False)
     table.add_column("#", justify="right", style="dim")
     table.add_column("종목", style="cyan", no_wrap=True)
-    table.add_column("이름")
+    table.add_column("이름", no_wrap=True)
     table.add_column("점수", justify="right", style="bold green")
     table.add_column("충족", justify="right")
     table.add_column("종가", justify="right")
     table.add_column("등락%", justify="right")
-    score_cols = [c for c in result.columns if c.startswith("s_")] if detail else []
     for col in score_cols:
-        table.add_column(col[2:], justify="right", style="dim")
+        table.add_column(get_condition(col[2:]).label, justify="right", style="dim")
 
     for i, row in enumerate(result.itertuples(index=False), start=1):
         values = [
@@ -362,10 +366,41 @@ def scan(
         table.add_row(*values)
     console.print(table)
 
+    if detail and not inline_scores:
+        _print_breakdown(result, all_score_cols)
+
     if csv:
         csv.parent.mkdir(parents=True, exist_ok=True)
         result.to_csv(csv, index=False, encoding="utf-8-sig")
         console.print(f"[green]저장[/] {csv}")
+
+
+def _print_breakdown(result, score_cols: list[str]) -> None:
+    """종목별로 어떤 조건을 충족했고 어디서 깎였는지 풀어서 보여준다."""
+    console.print()
+    for i, row in enumerate(result.itertuples(index=False), start=1):
+        scores = sorted(
+            ((get_condition(col[2:]).label, getattr(row, col)) for col in score_cols),
+            key=lambda pair: pair[1], reverse=True,
+        )
+        met = [label for label, value in scores if value >= 0.999]
+        partial = [(label, value) for label, value in scores if 0 < value < 0.999]
+        missed = [label for label, value in scores if value <= 0]
+
+        console.print(
+            f"[dim]{i:>2}[/] [cyan]{row.symbol}[/] {row.name} · "
+            f"[bold green]{row.score:.3f}[/] ({row.matched}/{len(score_cols)})"
+        )
+        if met:
+            console.print(f"     [green]충족[/] {' · '.join(met)}")
+        if partial:
+            console.print(
+                "     [yellow]근접[/] "
+                + " · ".join(f"{label} {value:.2f}" for label, value in partial)
+            )
+        if missed:
+            console.print(f"     [dim]미달 {' · '.join(missed)}[/]")
+
 
 
 @app.command("presets")
