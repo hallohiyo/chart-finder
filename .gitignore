@@ -6,3 +6,6 @@ __pycache__/
 *.egg-info/
 .chartfinder-cache/
 out/
+
+# 실수로 저장소에 떨어지는 패키지 파일 방지
+*.deb
