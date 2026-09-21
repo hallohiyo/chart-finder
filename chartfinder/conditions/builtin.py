@@ -799,3 +799,26 @@ def macd_hist_weakening(
 
     momentum = float(falling.sum()) / falling_days
     return momentum * (_hist_zone(ctx, hist, below=False) if above_zero else 1.0)
+
+
+@condition(
+    "volume_floor", "거래량 하한", VOLUME,
+    params=(
+        _p("days", "확인 일수", default=3, min=1, max=60),
+        _p("min_volume", "최소 거래량 (주)", "float", default=300_000.0, min=0.0, max=1e10, step=10_000.0),
+        _p("mode", "판정 방식", "choice", default="each", choices=("each", "sum", "avg"),
+           help="each=N일 모두 기준 이상, sum=N일 합계, avg=N일 평균"),
+    ),
+    description="최근 N일 거래량이 기준 이상인지. 유동성이 받쳐주는 종목만 남길 때 쓴다.",
+    min_bars=5,
+)
+def volume_floor(ctx: Ctx, days: int, min_volume: float, mode: str) -> float:
+    window = ctx.volume.dropna().tail(days)
+    if len(window) < days:
+        return 0.0
+    if mode == "sum":
+        return soft_gt(float(window.sum()), min_volume, tol=max(min_volume * 0.2, 1.0))
+    if mode == "avg":
+        return soft_gt(float(window.mean()), min_volume, tol=max(min_volume * 0.2, 1.0))
+    # each: 하루라도 미달이면 그만큼 감점 (3일 중 2일 충족이면 0.67)
+    return float((window >= min_volume).sum()) / days

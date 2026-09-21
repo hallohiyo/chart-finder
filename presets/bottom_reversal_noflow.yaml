@@ -21,7 +21,10 @@ conditions:
     weight: 1.5
     params: {period: 14, threshold: 30.0, within: 5}
 
-  # 3. 거래대금 하한 (유동성 필터)
+  # 3. 거래량 — 3일 연속 30만주 이상 + 거래대금 하한
+  - key: volume_floor
+    weight: 1.5
+    params: {days: 3, min_volume: 300000.0, mode: each}
   - key: min_trading_value
     weight: 1.0
     params: {period: 20, amount: 1000.0}

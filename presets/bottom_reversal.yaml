@@ -23,16 +23,16 @@ conditions:
 
   # 3. 외국인·기관 수급 — 3일 연속 순매수
   - key: foreign_net_buy
-    weight: 1.5
+    weight: 2.0
     params: {days: 3}
   - key: inst_net_buy
-    weight: 1.0
+    weight: 2.0
     params: {days: 3}
 
-  # 4. 수급량 — 5일 누적 순매수 + 거래대금 하한
-  - key: net_buy_volume
-    weight: 1.0
-    params: {days: 5, min_shares: 100000.0, who: both}
+  # 4. 거래량 — 3일 연속 30만주 이상 + 거래대금 하한
+  - key: volume_floor
+    weight: 1.5
+    params: {days: 3, min_volume: 300000.0, mode: each}
   - key: min_trading_value
     weight: 1.0
     params: {period: 20, amount: 1000.0}

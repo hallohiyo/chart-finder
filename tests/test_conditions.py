@@ -241,3 +241,25 @@ def test_flow_conditions_need_enough_published_days():
     df = make_df([100.0] * 40)
     df["foreign_net"] = [None] * 38 + [1000.0, None]  # 공시된 날이 하루뿐
     assert get("foreign_net_buy").score(Ctx(df), {"days": 3}) == 0.0
+
+
+def test_volume_floor_requires_every_day_above_the_line():
+    cond = get("volume_floor")
+    enough = make_df([100.0] * 10, [400_000.0] * 10)
+    assert cond.score(Ctx(enough), {"days": 3, "min_volume": 300_000}) == 1.0
+
+    one_short = make_df([100.0] * 10, [400_000.0] * 8 + [250_000.0, 400_000.0])
+    assert cond.score(Ctx(one_short), {"days": 3, "min_volume": 300_000}) == pytest.approx(2 / 3)
+
+
+def test_volume_floor_sum_and_avg_modes():
+    cond = get("volume_floor")
+    df = make_df([100.0] * 10, [100_000.0] * 10)
+    assert cond.score(Ctx(df), {"days": 3, "min_volume": 300_000, "mode": "sum"}) == 1.0
+    assert cond.score(Ctx(df), {"days": 3, "min_volume": 300_000, "mode": "avg"}) < 0.5
+
+
+def test_volume_floor_needs_enough_history():
+    cond = get("volume_floor")
+    short = make_df([100.0] * 2, [400_000.0] * 2)
+    assert cond.score(Ctx(short), {"days": 3, "min_volume": 300_000}) == 0.0
