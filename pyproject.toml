@@ -1,0 +1,33 @@
+[project]
+name = "chartfinder"
+version = "0.1.0"
+description = "조건에 가장 근접한 주식을 찾아주는 차트 스크리너 (KRX + US)"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "pandas>=2.0",
+    "numpy>=1.24",
+    "pyarrow>=14.0",
+    "typer>=0.12",
+    "rich>=13.0",
+    "PyYAML>=6.0",
+    "finance-datareader>=0.9.50",
+    "yfinance>=0.2.40",
+]
+
+[project.optional-dependencies]
+ui = ["streamlit>=1.30", "plotly>=5.18"]
+dev = ["pytest>=7.4"]
+
+[project.scripts]
+chartfinder = "chartfinder.cli:app"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["chartfinder*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

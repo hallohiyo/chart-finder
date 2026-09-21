@@ -1,0 +1,14 @@
+name: 신고가 근접 모멘텀
+market: us
+universe: sp500
+description: 52주 신고가 5% 이내에서 MACD가 0선 위를 유지 중인 강세 종목.
+conditions:
+  - key: near_high
+    weight: 2.0
+    params: {period: 252, max_gap: 5.0}
+  - key: macd_above_zero
+    weight: 1.0
+    params: {fast: 12, slow: 26, signal: 9}
+  - key: above_ma
+    weight: 1.0
+    params: {period: 60, margin: 0.0}

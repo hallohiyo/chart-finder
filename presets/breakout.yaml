@@ -1,0 +1,17 @@
+name: 박스권 돌파
+market: us
+universe: sp500
+description: 변동성이 수축된 박스권을 거래량을 동반해 돌파한 종목.
+conditions:
+  - key: box_range
+    weight: 1.0
+    params: {period: 60, max_width: 18.0}
+  - key: breakout_high
+    weight: 2.0
+    params: {period: 60, within: 3}
+  - key: volume_surge
+    weight: 1.5
+    params: {period: 20, ratio: 2.0}
+  - key: ma_slope_up
+    weight: 1.0
+    params: {period: 60, lookback: 10, min_slope: 0.0}

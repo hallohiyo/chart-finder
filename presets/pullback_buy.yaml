@@ -1,0 +1,17 @@
+name: 상승추세 눌림목
+market: kr
+universe: all
+description: 정배열 상승 추세 중 20일선까지 밀린 종목. 거래량은 마른 상태.
+conditions:
+  - key: ma_alignment
+    weight: 1.5
+    params: {p1: 5, p2: 20, p3: 60, p4: 120}
+  - key: ma_pullback
+    weight: 2.0
+    params: {period: 20, max_gap: 3.0}
+  - key: volume_dryup
+    weight: 1.0
+    params: {period: 20, ratio: 0.7}
+  - key: min_trading_value
+    weight: 1.0
+    params: {period: 20, amount: 1000.0}
