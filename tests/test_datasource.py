@@ -261,3 +261,47 @@ def test_krx_reports_both_providers_when_both_fail(krx, monkeypatch):
     with pytest.raises(RuntimeError) as err:
         krx.fetch_flows("005930", date(2026, 9, 14), date.today())
     assert "pykrx" in str(err.value) and "naver" in str(err.value)
+
+
+def test_us_fundamentals_computed_from_statements(us, monkeypatch):
+    """yfinance 는 비율을 주지 않으므로 ROE·부채비율을 직접 계산해야 한다."""
+    periods = [pd.Timestamp("2023-12-31"), pd.Timestamp("2024-12-31")]
+
+    class FakeTicker:
+        def __init__(self, symbol):
+            self.symbol = symbol
+
+        income_stmt = pd.DataFrame(
+            [[1000.0, 1200.0], [100.0, 150.0], [80.0, 120.0]],
+            index=["Total Revenue", "Operating Income", "Net Income"], columns=periods,
+        )
+        balance_sheet = pd.DataFrame(
+            [[800.0, 1000.0], [400.0, 500.0]],
+            index=["Stockholders Equity", "Total Liabilities Net Minority Interest"],
+            columns=periods,
+        )
+        cashflow = pd.DataFrame(
+            [[90.0, 140.0]], index=["Operating Cash Flow"], columns=periods
+        )
+
+    monkeypatch.setattr(us._yf, "Ticker", FakeTicker, raising=False)
+    df = us.fetch_fundamentals("AAPL")
+
+    assert df.loc[2024, "revenue"] == 1200.0
+    assert df.loc[2024, "operating_margin"] == pytest.approx(12.5)
+    assert df.loc[2024, "roe"] == pytest.approx(12.0)        # 120 / 1000
+    assert df.loc[2024, "debt_ratio"] == pytest.approx(50.0)  # 500 / 1000
+    assert df.loc[2024, "operating_cash_flow"] == 140.0
+
+
+def test_us_fundamentals_empty_when_statements_missing(us, monkeypatch):
+    class Empty:
+        def __init__(self, symbol):
+            pass
+
+        income_stmt = pd.DataFrame()
+        balance_sheet = pd.DataFrame()
+        cashflow = pd.DataFrame()
+
+    monkeypatch.setattr(us._yf, "Ticker", Empty, raising=False)
+    assert us.fetch_fundamentals("AAPL").empty

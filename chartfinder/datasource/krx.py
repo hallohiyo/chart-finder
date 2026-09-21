@@ -17,6 +17,7 @@ class KrxSource(DataSource):
     market = "kr"
     universes = ("all", "kospi", "kosdaq")
     supports_flows = True
+    supports_fundamentals = True
 
     def __init__(self) -> None:
         import FinanceDataReader as fdr  # 지연 import: 네트워크 의존 모듈
@@ -89,6 +90,15 @@ class KrxSource(DataSource):
         if errors:
             raise RuntimeError(" / ".join(errors))
         return pd.DataFrame()
+
+    def fetch_fundamentals(self, symbol: str) -> pd.DataFrame:
+        """연간 재무 지표. 네이버 기업실적분석 표를 읽는다.
+
+        영업활동현금흐름은 이 표에 없어 비어 있다 (DART 등 별도 경로 필요).
+        """
+        from . import naver_fundamentals
+
+        return naver_fundamentals.fetch(symbol)
 
     def _flows_naver(self, symbol: str, start: date, end: date) -> pd.DataFrame:
         from . import naver_flows

@@ -115,6 +115,10 @@ with st.sidebar:
             "외국인·기관 수급 포함", value=False,
             help="한국 시장 전용. 종목당 요청이 1회 늘어 수집이 느려집니다.",
         )
+        fundamentals = st.checkbox(
+            "재무 데이터 포함", value=False,
+            help="매출·영업이익·ROE 등. 종목당 1회 요청이라 수집이 느려집니다.",
+        )
         if st.button("시작", type="primary", use_container_width=True):
             status = st.empty()
             bar = st.progress(0.0)
@@ -134,6 +138,14 @@ with st.sidebar:
                        f"· 실패 {stats['failed']}")
             if flows:
                 message += f" · 수급 {stats['flows']}"
+            if fundamentals:
+                fund = cache.update_fundamentals(
+                    market, universe, symbols=symbols,
+                    progress=lambda done, total, sym: on_progress(done, total, sym),
+                )
+                message += f" · 재무 {fund['updated']}"
+                if fund.get("error"):
+                    st.warning(f"재무 수집 오류: {fund['error']}")
             st.success(message)
             if flows and stats.get("flow_error"):
                 st.warning(f"수급을 받지 못한 종목이 있습니다: {stats['flow_error']}")

@@ -21,10 +21,12 @@ class Ctx:
     """종목 하나의 일봉과 지표 계산 결과 캐시.
 
     여러 조건이 같은 지표(예: MA20)를 요구해도 한 번만 계산한다.
+    재무 데이터(fundamentals)는 있을 때만 채워진다.
     """
 
-    def __init__(self, df: pd.DataFrame) -> None:
+    def __init__(self, df: pd.DataFrame, fundamentals: pd.DataFrame | None = None) -> None:
         self.df = df
+        self.fundamentals = fundamentals
         self._memo: dict[tuple, Any] = {}
 
     # ---------------------------------------------------------------- 기본 시세
@@ -47,6 +49,20 @@ class Ctx:
     @property
     def bars(self) -> int:
         return len(self.df)
+
+    def fundamental(self, name: str, years: int | None = None) -> pd.Series | None:
+        """재무 항목 시계열 (연도 오름차순). 없으면 None.
+
+        years 를 주면 최근 N개만. 결측 연도는 제외한다.
+        """
+        if self.fundamentals is None or self.fundamentals.empty:
+            return None
+        if name not in self.fundamentals.columns:
+            return None
+        series = pd.to_numeric(self.fundamentals[name], errors="coerce").dropna()
+        if series.empty:
+            return None
+        return series.tail(years) if years else series
 
     def flow(self, name: str) -> pd.Series | None:
         """투자자별 순매수 컬럼 (foreign_net / inst_net / indi_net).

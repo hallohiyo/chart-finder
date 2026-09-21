@@ -19,6 +19,7 @@ VOLATILITY = "변동성"
 VOLUME = "거래량"
 POSITION = "가격위치"
 FLOW = "수급"
+FUNDAMENTAL = "재무"
 PATTERN = "패턴"
 FILTER = "필터"
 
@@ -822,3 +823,108 @@ def volume_floor(ctx: Ctx, days: int, min_volume: float, mode: str) -> float:
         return soft_gt(float(window.mean()), min_volume, tol=max(min_volume * 0.2, 1.0))
     # each: 하루라도 미달이면 그만큼 감점 (3일 중 2일 충족이면 0.67)
     return float((window >= min_volume).sum()) / days
+
+
+# --------------------------------------------------------------------------- 재무
+# `update --fundamentals` 로 받은 재무 캐시가 있어야 점수가 나온다.
+
+
+def _rising_ratio(series, years: int, min_growth: float) -> float:
+    """최근 years개 값이 해마다 min_growth% 이상 늘었는지의 비율."""
+    if series is None or len(series) < years:
+        return 0.0
+    window = series.tail(years)
+    steps = []
+    for before, after in zip(window[:-1], window[1:]):
+        if before is None or before == 0:
+            continue
+        growth = (after / abs(before) - 1.0) * 100.0
+        steps.append(soft_gt(growth, min_growth, tol=max(abs(min_growth), 5.0)))
+    return sum(steps) / len(steps) if steps else 0.0
+
+
+@condition(
+    "revenue_growth", "매출액 증가", FUNDAMENTAL,
+    params=(
+        _p("years", "확인 연수", default=4, min=2, max=10),
+        _p("min_growth", "연간 최소 증가율 (%)", "float", default=0.0, min=-50.0, max=100.0, step=1.0),
+    ),
+    description="최근 N년 매출액이 해마다 늘었는지. 일부 해만 늘면 그 비율만큼 부분점수.",
+    min_bars=1,
+)
+def revenue_growth(ctx: Ctx, years: int, min_growth: float) -> float:
+    return _rising_ratio(ctx.fundamental("revenue"), years, min_growth)
+
+
+@condition(
+    "operating_income_growth", "영업이익 증가", FUNDAMENTAL,
+    params=(
+        _p("years", "확인 연수", default=4, min=2, max=10),
+        _p("min_growth", "연간 최소 증가율 (%)", "float", default=0.0, min=-50.0, max=100.0, step=1.0),
+    ),
+    description="최근 N년 영업이익이 해마다 늘었는지.",
+    min_bars=1,
+)
+def operating_income_growth(ctx: Ctx, years: int, min_growth: float) -> float:
+    return _rising_ratio(ctx.fundamental("operating_income"), years, min_growth)
+
+
+@condition(
+    "operating_margin", "영업이익률", FUNDAMENTAL,
+    params=(
+        _p("min_margin", "최소 영업이익률 (%)", "float", default=5.0, min=-50.0, max=90.0, step=0.5),
+        _p("years", "평균 낼 연수", default=1, min=1, max=10),
+    ),
+    description="최근 N년 평균 영업이익률이 기준 이상.",
+    min_bars=1,
+)
+def operating_margin(ctx: Ctx, min_margin: float, years: int) -> float:
+    series = ctx.fundamental("operating_margin", years)
+    if series is None:
+        return 0.0
+    return soft_gt(float(series.mean()), min_margin, tol=max(abs(min_margin) * 0.4, 2.0))
+
+
+@condition(
+    "debt_ratio", "부채비율", FUNDAMENTAL,
+    params=(
+        _p("max_ratio", "최대 부채비율 (%)", "float", default=100.0, min=0.0, max=1000.0, step=10.0),
+        _p("years", "확인 연수", default=1, min=1, max=10),
+    ),
+    description="최근 N년 평균 부채비율이 기준 이하. 낮을수록 안정적.",
+    min_bars=1,
+)
+def debt_ratio(ctx: Ctx, max_ratio: float, years: int) -> float:
+    series = ctx.fundamental("debt_ratio", years)
+    if series is None:
+        return 0.0
+    return soft_lt(float(series.mean()), max_ratio, tol=max(max_ratio * 0.3, 10.0))
+
+
+@condition(
+    "roe", "ROE", FUNDAMENTAL,
+    params=(
+        _p("min_roe", "최소 ROE (%)", "float", default=10.0, min=-50.0, max=100.0, step=1.0),
+        _p("years", "평균 낼 연수", default=1, min=1, max=10),
+    ),
+    description="최근 N년 평균 자기자본이익률이 기준 이상.",
+    min_bars=1,
+)
+def roe(ctx: Ctx, min_roe: float, years: int) -> float:
+    series = ctx.fundamental("roe", years)
+    if series is None:
+        return 0.0
+    return soft_gt(float(series.mean()), min_roe, tol=max(abs(min_roe) * 0.4, 2.0))
+
+
+@condition(
+    "positive_cash_flow", "영업현금흐름 플러스", FUNDAMENTAL,
+    params=(_p("years", "확인 연수", default=3, min=1, max=10),),
+    description="최근 N년 영업활동현금흐름이 모두 플러스. 일부만 플러스면 그 비율.",
+    min_bars=1,
+)
+def positive_cash_flow(ctx: Ctx, years: int) -> float:
+    series = ctx.fundamental("operating_cash_flow", years)
+    if series is None or len(series) < years:
+        return 0.0
+    return float((series > 0).sum()) / years

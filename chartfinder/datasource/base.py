@@ -50,6 +50,12 @@ class DataSource(abc.ABC):
 
     #: 투자자별 순매수(외국인·기관 수급)를 받을 수 있는 소스인지
     supports_flows: bool = False
+    #: 재무 데이터를 받을 수 있는 소스인지
+    supports_fundamentals: bool = False
+
+    def fetch_fundamentals(self, symbol: str) -> pd.DataFrame:
+        """연간 재무 지표. 지원하지 않는 소스는 빈 프레임."""
+        return pd.DataFrame()
 
     def fetch_flows(self, symbol: str, start: date, end: date) -> pd.DataFrame:
         """투자자별 일별 순매수. 지원하지 않는 소스는 빈 프레임."""

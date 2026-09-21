@@ -6,6 +6,7 @@ from datetime import date
 
 import pandas as pd
 
+from ..fundamentals import normalize
 from .base import EXCHANGE_COL, DataSource, Ticker, normalize_ohlcv
 
 _LISTING_KEY = {
@@ -19,6 +20,8 @@ _LISTING_KEY = {
 class UsSource(DataSource):
     market = "us"
     universes = ("sp500", "nasdaq", "nyse", "amex", "all")
+
+    supports_fundamentals = True
 
     #: yfinance 배치 다운로드 한 묶음 크기
     batch_size = 100
@@ -63,6 +66,35 @@ class UsSource(DataSource):
             )
         return tickers
 
+    def fetch_fundamentals(self, symbol: str) -> pd.DataFrame:
+        """연간 재무 지표. yfinance 재무제표에서 뽑고 비율은 계산한다."""
+        ticker = self._yf.Ticker(symbol)
+        income, balance, cash = ticker.income_stmt, ticker.balance_sheet, ticker.cashflow
+
+        revenue = _row(income, "Total Revenue", "Operating Revenue")
+        operating = _row(income, "Operating Income", "EBIT")
+        net = _row(income, "Net Income", "Net Income Common Stockholders")
+        equity = _row(balance, "Stockholders Equity", "Total Equity Gross Minority Interest")
+        liabilities = _row(balance, "Total Liabilities Net Minority Interest", "Total Debt")
+        operating_cash = _row(cash, "Operating Cash Flow", "Total Cash From Operating Activities")
+
+        columns = {
+            "revenue": revenue, "operating_income": operating, "net_income": net,
+            "operating_cash_flow": operating_cash,
+        }
+        frame = pd.DataFrame({k: v for k, v in columns.items() if v is not None})
+        if frame.empty:
+            return pd.DataFrame()
+
+        # 비율 항목은 yfinance 가 주지 않으므로 직접 계산한다
+        if equity is not None:
+            safe_equity = equity.reindex(frame.index).replace(0, pd.NA)
+            if net is not None:
+                frame["roe"] = net.reindex(frame.index) / safe_equity * 100.0
+            if liabilities is not None:
+                frame["debt_ratio"] = liabilities.reindex(frame.index) / safe_equity * 100.0
+        return normalize(frame)
+
     def fetch_ohlcv(self, symbol: str, start: date, end: date) -> pd.DataFrame:
         df = self._yf.download(
             symbol,
@@ -100,6 +132,18 @@ class UsSource(DataSource):
                 if not df.empty:
                     out[sym] = df
         return out
+
+
+def _row(df, *names):
+    """재무제표 프레임(행=항목)에서 항목 하나를 뽑는다."""
+    if df is None or df.empty:
+        return None
+    lookup = {str(i).strip().lower(): i for i in df.index}
+    for name in names:
+        key = name.strip().lower()
+        if key in lookup:
+            return df.loc[lookup[key]]
+    return None
 
 
 def _looks_like_symbol(sym: str) -> bool:

@@ -9,6 +9,7 @@ import pandas as pd
 
 from . import cache
 from .conditions import Ctx, get as get_condition
+from .conditions.builtin import FUNDAMENTAL as FUNDAMENTAL_CATEGORY
 from .datasource import Ticker
 
 ProgressFn = Callable[[int, int], None]
@@ -56,9 +57,13 @@ class ConditionSpec:
         return {"key": self.key, "params": dict(self.params), "weight": self.weight}
 
 
-def score_one(df: pd.DataFrame, specs: Iterable[ConditionSpec]) -> dict[str, float]:
+def score_one(
+    df: pd.DataFrame,
+    specs: Iterable[ConditionSpec],
+    fundamentals: pd.DataFrame | None = None,
+) -> dict[str, float]:
     """종목 하나에 대한 조건별 점수."""
-    ctx = Ctx(df)
+    ctx = Ctx(df, fundamentals)
     return {spec.key: get_condition(spec.key).score(ctx, spec.params) for spec in specs}
 
 
@@ -92,6 +97,11 @@ def screen(
         tickers = cache.get_tickers(market, universe)
     names = {t.symbol: t.name for t in tickers}
 
+    # 재무 조건이 하나도 없으면 재무 캐시를 읽지 않는다 (불필요한 디스크 접근)
+    needs_fundamentals = any(
+        get_condition(spec.key).category == FUNDAMENTAL_CATEGORY for spec in specs
+    )
+
     rows: list[dict[str, Any]] = []
     total = len(tickers)
     for i, ticker in enumerate(tickers, start=1):
@@ -101,7 +111,8 @@ def screen(
         if df is None or df.empty:
             continue
 
-        scores = score_one(df, specs)
+        fundamentals = cache.load_fundamentals(market, ticker.symbol) if needs_fundamentals else None
+        scores = score_one(df, specs, fundamentals)
         total_score = combine(scores, specs)
         if strict and any(s < STRICT_PASS for s in scores.values()):
             continue

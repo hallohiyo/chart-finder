@@ -28,6 +28,7 @@ class DemoSource(DataSource):
     market = "demo"
     universes = ("all",)
     supports_flows = True  # 합성 수급 데이터가 일봉에 함께 들어 있다
+    supports_fundamentals = True
 
     def __init__(self, count: int = 60) -> None:
         self.count = count
@@ -54,6 +55,9 @@ class DemoSource(DataSource):
     def fetch_flows(self, symbol: str, start: date, end: date) -> pd.DataFrame:
         df = generate(symbol, start, end)
         return df[[c for c in FLOW_COLUMNS if c in df.columns]]
+
+    def fetch_fundamentals(self, symbol: str) -> pd.DataFrame:
+        return generate_fundamentals(symbol)
 
 
 def generate(symbol: str, start: date, end: date) -> pd.DataFrame:
@@ -96,4 +100,37 @@ def generate(symbol: str, start: date, end: date) -> pd.DataFrame:
             "foreign_net": foreign, "inst_net": inst, "indi_net": -(foreign + inst),
         },
         index=index,
+    )
+
+
+def generate_fundamentals(symbol: str, years: int = 5) -> pd.DataFrame:
+    """종목코드를 시드로 한 합성 재무제표. 성장·정체·역성장이 섞이게 만든다."""
+    from ..fundamentals import normalize
+
+    seed = abs(hash(symbol)) % (2**32)
+    rng = np.random.default_rng(seed + 7)
+    growth = rng.uniform(-0.15, 0.35)  # 연평균 매출 성장률
+    margin = rng.uniform(-0.05, 0.25)  # 영업이익률
+
+    end_year = date.today().year - 1
+    periods = list(range(end_year - years + 1, end_year + 1))
+    base = float(rng.integers(50_000, 5_000_000))
+
+    revenue = base * np.cumprod(1 + rng.normal(growth, 0.08, years))
+    operating = revenue * np.clip(margin + rng.normal(0, 0.03, years), -0.5, 0.6)
+    net = operating * rng.uniform(0.5, 0.9)
+    equity = revenue * rng.uniform(0.4, 1.2)
+
+    return normalize(
+        pd.DataFrame(
+            {
+                "revenue": revenue,
+                "operating_income": operating,
+                "net_income": net,
+                "debt_ratio": np.clip(rng.normal(rng.uniform(30, 180), 15, years), 5, 500),
+                "roe": net / equity * 100.0,
+                "operating_cash_flow": operating * rng.uniform(0.6, 1.4, years),
+            },
+            index=periods,
+        )
     )

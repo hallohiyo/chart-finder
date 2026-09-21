@@ -23,6 +23,8 @@ from .datasource.base import FLOW_COLUMNS
 OVERLAP_DAYS = 7
 #: 종목 목록 캐시 유효기간
 TICKER_TTL_DAYS = 7
+#: 재무 캐시 유효기간. 분기마다 바뀌므로 자주 받을 이유가 없다.
+FUNDAMENTAL_TTL_DAYS = 30
 #: 수급을 처음 받을 때 거슬러 올라갈 일수.
 #: 수급 조건이 보는 구간은 길어야 수십 일이라 시세만큼 길게 받을 이유가 없다.
 FLOW_HISTORY_DAYS = 120
@@ -39,6 +41,13 @@ def cache_home() -> Path:
 def _price_path(market: str, symbol: str) -> Path:
     safe = symbol.replace("/", "_").replace("\\", "_")
     path = cache_home() / "prices" / market / f"{safe}.parquet"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def _fundamental_path(market: str, symbol: str) -> Path:
+    safe = symbol.replace("/", "_").replace("\\", "_")
+    path = cache_home() / "fundamentals" / market / f"{safe}.parquet"
     path.parent.mkdir(parents=True, exist_ok=True)
     return path
 
@@ -69,6 +78,72 @@ def get_tickers(market: str, universe: str, refresh: bool = False) -> list[Ticke
         encoding="utf-8",
     )
     return tickers
+
+
+# --------------------------------------------------------------------------- 재무
+
+
+def load_fundamentals(market: str, symbol: str) -> pd.DataFrame | None:
+    path = _fundamental_path(market, symbol)
+    if not path.exists():
+        return None
+    try:
+        return pd.read_parquet(path)
+    except Exception:
+        return None
+
+
+def save_fundamentals(market: str, symbol: str, df: pd.DataFrame) -> None:
+    if df is None or df.empty:
+        return
+    df.to_parquet(_fundamental_path(market, symbol))
+
+
+def fundamentals_fresh(market: str, symbol: str, ttl_days: int = FUNDAMENTAL_TTL_DAYS) -> bool:
+    path = _fundamental_path(market, symbol)
+    if not path.exists():
+        return False
+    age = datetime.now() - datetime.fromtimestamp(path.stat().st_mtime)
+    return age.days < ttl_days
+
+
+def update_fundamentals(
+    market: str,
+    universe: str = "all",
+    symbols: list[str] | None = None,
+    force: bool = False,
+    progress: ProgressFn | None = None,
+) -> dict[str, object]:
+    """재무 데이터를 받아 캐시한다. 종목당 1회 요청이라 시세보다 느리다."""
+    source = get_source(market)
+    if not getattr(source, "supports_fundamentals", False):
+        return {"updated": 0, "skipped": 0, "failed": 0,
+                "error": f"{market} 시장은 재무 수집을 지원하지 않습니다."}
+
+    if symbols is None:
+        symbols = [t.symbol for t in get_tickers(market, universe)]
+
+    stats: dict[str, object] = {"updated": 0, "skipped": 0, "failed": 0}
+    total = len(symbols)
+    for done, symbol in enumerate(symbols, start=1):
+        if progress:
+            progress(done, total, symbol)
+        if not force and fundamentals_fresh(market, symbol):
+            stats["skipped"] += 1
+            continue
+        try:
+            df = source.fetch_fundamentals(symbol)
+        except Exception as exc:
+            stats["failed"] += 1
+            stats.setdefault("error", f"{type(exc).__name__}: {exc}")
+            continue
+        if df is None or df.empty:
+            stats["failed"] += 1
+            stats.setdefault("error", f"재무 응답이 비어 있습니다 ({symbol}).")
+            continue
+        save_fundamentals(market, symbol, df)
+        stats["updated"] += 1
+    return stats
 
 
 # --------------------------------------------------------------------------- 시세

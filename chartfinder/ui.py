@@ -158,7 +158,9 @@ class App(tk.Tk):
         ttk.Checkbutton(bar, text="엄격 모드", variable=self.strict).pack(side="left", padx=(0, 12))
 
         self.flows = tk.BooleanVar(value=False)
-        ttk.Checkbutton(bar, text="수급 포함", variable=self.flows).pack(side="left", padx=(0, 8))
+        ttk.Checkbutton(bar, text="수급 포함", variable=self.flows).pack(side="left", padx=(0, 4))
+        self.fundamentals = tk.BooleanVar(value=False)
+        ttk.Checkbutton(bar, text="재무 포함", variable=self.fundamentals).pack(side="left", padx=(0, 8))
 
         ttk.Button(bar, text="데이터 받기", command=self.on_update).pack(side="left")
         ttk.Button(bar, text="검색", command=self.on_scan).pack(side="left", padx=4)
@@ -283,12 +285,24 @@ class App(tk.Tk):
     # ------------------------------------------------------------------ 동작
     def on_update(self) -> None:
         market, universe, flows = self.market.get(), self.universe.get(), self.flows.get()
+        fundamentals = self.fundamentals.get()
 
         def work():
-            return cache.update(
+            stats = cache.update(
                 market, universe, flows=flows,
                 progress=lambda done, total, sym: self.report(done, total, f"수집 중 {done}/{total} · {sym}"),
             )
+            if fundamentals:
+                fund = cache.update_fundamentals(
+                    market, universe,
+                    progress=lambda done, total, sym: self.report(
+                        done, total, f"재무 수집 {done}/{total} · {sym}"
+                    ),
+                )
+                stats["fundamentals"] = fund["updated"]
+                if fund.get("error"):
+                    stats.setdefault("flow_error", fund["error"])
+            return stats
 
         def finish(stats):
             self.progress["value"] = self.progress["maximum"]
@@ -296,6 +310,8 @@ class App(tk.Tk):
                     f" · 실패 {stats['failed']}")
             if flows:
                 text += f" · 수급 {stats['flows']}"
+            if "fundamentals" in stats:
+                text += f" · 재무 {stats['fundamentals']}"
                 if stats.get("flow_error"):
                     messagebox.showwarning("수급 수집 실패", str(stats["flow_error"]))
             self.status.set(text)

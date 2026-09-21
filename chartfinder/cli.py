@@ -76,6 +76,10 @@ def update_cache(
         False, "--flows",
         help="외국인·기관 순매수도 함께 수집 (한국 시장 전용, 종목당 요청이 1회 늘어 느려짐)",
     ),
+    fundamentals: bool = typer.Option(
+        False, "--fundamentals",
+        help="재무 데이터(매출·영업이익·ROE 등)도 함께 수집. 종목당 1회 요청이라 느리다",
+    ),
     limit: Optional[int] = typer.Option(None, "--limit", help="앞에서 N종목만 (시험용)"),
 ) -> None:
     """일봉 데이터를 내려받아 로컬 캐시를 갱신한다."""
@@ -106,6 +110,26 @@ def update_cache(
     console.print(summary)
 
     # 수급 0건 자체는 '받을 게 없었다'는 뜻일 수 있으므로, 실제 오류가 있을 때만 알린다
+    if fundamentals:
+        with Progress(
+            SpinnerColumn(), TextColumn("[progress.description]{task.description}"),
+            BarColumn(), TextColumn("{task.completed}/{task.total}"), TimeRemainingColumn(),
+            console=console,
+        ) as bar:
+            task = bar.add_task("재무 수집", total=max(len(symbols), 1))
+            fund_stats = cache.update_fundamentals(
+                market, universe, symbols=symbols, force=force,
+                progress=lambda done, total, sym: bar.update(
+                    task, completed=done, total=max(total, 1), description=f"재무 수집 {sym}"
+                ),
+            )
+        console.print(
+            f"[green]재무[/] 갱신 {fund_stats['updated']} · 최신 {fund_stats['skipped']} "
+            f"· 실패 {fund_stats['failed']}"
+        )
+        if fund_stats.get("error"):
+            console.print(f"[yellow]재무 수집 오류:[/] {fund_stats['error']}")
+
     if flows and stats.get("flow_error"):
         console.print(f"[yellow]수급을 받지 못한 종목이 있습니다:[/] {stats['flow_error']}")
     elif flows and not stats["flows"] and not stats["updated"]:
@@ -234,6 +258,32 @@ def doctor(
     if flows is not None and not flows.empty:
         console.print(f"   {len(flows)}행 · 컬럼: {list(flows.columns)}")
         console.print(f"[dim]{flows.tail(3)}[/]")
+
+    _check_fundamentals(source, market, symbol, step)
+
+
+def _check_fundamentals(source, market: str, symbol: str, step) -> None:
+    if not getattr(source, "supports_fundamentals", False):
+        console.print(f"[dim]·[/] 재무: {market} 시장은 지원하지 않습니다.")
+        return
+
+    fundamentals = step(f"재무 조회 ({symbol})", lambda: source.fetch_fundamentals(symbol))
+    if fundamentals is not None and not fundamentals.empty:
+        console.print(f"   {len(fundamentals)}개 연도 · {list(fundamentals.index)}")
+        console.print(f"[dim]{fundamentals.round(1).to_string()}[/]")
+        return
+    if market != "kr":
+        return
+
+    def fundamentals_diagnose():
+        from .datasource import naver_fundamentals
+
+        return naver_fundamentals.diagnose(symbol)
+
+    info = step("재무 응답 진단", fundamentals_diagnose)
+    if info:
+        for key, value in info.items():
+            console.print(f"   {key}: {str(value)[:300]}")
 
 
 @app.command("scan")

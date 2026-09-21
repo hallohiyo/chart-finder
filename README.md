@@ -88,7 +88,7 @@ chartfinder update -m demo
 chartfinder scan -m demo -c ma_alignment -c volume_surge --top 10 --detail
 ```
 
-## 내장 조건 (43개)
+## 내장 조건 (49개)
 
 | 카테고리 | 조건 |
 |---|---|
@@ -99,6 +99,7 @@ chartfinder scan -m demo -c ma_alignment -c volume_surge --top 10 --detail
 | 수급 | 외국인 연속 순매수, 기관 연속 순매수, 누적 순매수 수량 |
 | 가격위치 | 신고가 근접, 신저가 근접, 고점 대비 낙폭 구간, 특정 가격 근접 |
 | 패턴 | 박스권 횡보, N일 신고가 돌파, 조정 후 반등, 갭 상승 |
+| 재무 | 매출액 증가, 영업이익 증가, 영업이익률, 부채비율, ROE, 영업현금흐름 플러스 |
 | 필터 | 최소 거래대금, 주가 구간 |
 
 ### 외국인·기관 수급
@@ -147,12 +148,30 @@ def my_rule(ctx: Ctx, period: int) -> float:
 
 `ctx` 는 해당 종목의 일봉과 지표 캐시를 들고 있고, 반환값은 0~1 점수다.
 
+### 재무 데이터
+
+재무 조건은 일봉과 별도로 연간 재무제표를 받아야 쓸 수 있다.
+
+```bash
+chartfinder update -m kr -u all --fundamentals
+chartfinder update -m us -u sp500 --fundamentals
+```
+
+출처는 한국이 네이버 기업실적분석 표, 미국이 yfinance 재무제표다. 종목당 1회 요청이라
+시세보다 느리고, 캐시는 30일간 유지된다. 컨센서스(2025.12(E) 같은 추정치)는 실적이
+아니므로 제외한다.
+
+한국은 네이버 표에 **영업활동현금흐름이 없어** `positive_cash_flow` 조건이 0점으로
+나온다. 이 항목까지 쓰려면 DART 연동이 필요하다. 미국은 6개 항목이 모두 채워진다.
+
 ## 프리셋
 
 | 파일 | 내용 |
 |---|---|
 | `bottom_reversal.yaml` | 바닥권 반등 19종 (볼린저·RSI·수급·DMI·스토캐스틱·이평·MACD·거래량). `--flows` 필요 |
 | `bottom_reversal_noflow.yaml` | 위에서 수급만 제외. 미국 시장이나 수급 미수집 시 |
+| `fundamentals.yaml` | 재무 우량주 6종 (매출·영업이익 증가, 이익률·부채비율·ROE·현금흐름) |
+| `quality_reversal.yaml` | 재무 우량주 + 바닥권 반등 차트 23종 |
 | `pullback_buy.yaml` | 정배열 상승 추세 중 20일선 눌림목 |
 | `oversold_rebound.yaml` | 과매도 + 볼린저 하단 이탈 바닥권 |
 | `breakout.yaml` | 박스권을 거래량 동반 돌파 |
@@ -170,6 +189,7 @@ chartfinder/
   cache.py       parquet 로컬 캐시 + 증분 갱신
   indicators.py  기술적 지표 (pandas 벡터 연산)
   scoring.py     근접도 점수 함수 (soft_lt / soft_gt / ordered ...)
+  fundamentals.py 재무 스키마와 정규화 (소스별 컬럼명 흡수)
   conditions/    조건 레지스트리 — 파라미터 스키마가 UI/CLI를 자동 생성
   screener.py    전 종목 채점 + 가중 랭킹
   charts.py      캔들차트 (두 UI가 공유)
