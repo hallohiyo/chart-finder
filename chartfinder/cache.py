@@ -17,6 +17,7 @@ from typing import Callable, Iterable
 import pandas as pd
 
 from .datasource import Ticker, get_source
+from .datasource.base import FLOW_COLUMNS
 
 #: 증분 갱신 시 겹쳐서 다시 받는 일수 (수정주가 반영분 보정)
 OVERLAP_DAYS = 7
@@ -114,19 +115,20 @@ def merge(old: pd.DataFrame | None, new: pd.DataFrame) -> pd.DataFrame:
 
 def attach_flows(
     source, symbol: str, df: pd.DataFrame, start: date, end: date
-) -> pd.DataFrame:
+) -> tuple[pd.DataFrame, int]:
     """투자자별 순매수를 일봉 프레임에 컬럼으로 붙인다.
 
     증분 갱신 시 받아온 구간만 덮어쓰고 그 밖의 기존 값은 보존한다.
+    (프레임, 실제로 반영된 행 수)를 돌려준다 — 빈 응답을 성공으로 세지 않기 위해서.
     """
     flows = source.fetch_flows(symbol, start, end)
     if flows is None or flows.empty:
-        return df
+        return df, 0
     for col in flows.columns:
         if col not in df.columns:
             df[col] = pd.NA
     df.update(flows)
-    return df
+    return df, int(len(df.index.intersection(flows.index)))
 
 
 def update(
@@ -149,12 +151,19 @@ def update(
         symbols = [t.symbol for t in get_tickers(market, universe, refresh=force)]
 
     today = date.today()
+    # 조회 종료일은 시세·수급 모두 동일하게 쓴다 (하루라도 어긋나면 마지막 행이 빈다)
+    fetch_end = today + timedelta(days=1)
     full_start = today - timedelta(days=int(365.25 * years) + 40)
 
     stats: dict[str, object] = {"updated": 0, "skipped": 0, "failed": 0, "flows": 0}
 
+    want_flows = flows and getattr(source, "supports_flows", False)
+    last_session = _last_expected_session(today)
+
     # 어디까지 받아야 하는지에 따라 종목을 묶는다 (배치 다운로드용)
     buckets: dict[date, list[str]] = {}
+    # 시세는 최신이지만 수급만 빠진 종목 (시세를 다시 받을 필요가 없다)
+    flows_only: list[str] = []
     for sym in symbols:
         if force:
             start = full_start
@@ -162,21 +171,24 @@ def update(
             last = last_date(market, sym)
             if last is None:
                 start = full_start
-            elif last >= _last_expected_session(today):
-                stats["skipped"] += 1
+            elif last >= last_session:
+                if want_flows and not flows_up_to_date(load(market, sym), last_session):
+                    flows_only.append(sym)
+                else:
+                    stats["skipped"] += 1
                 continue
             else:
                 start = last - timedelta(days=OVERLAP_DAYS)
         buckets.setdefault(start, []).append(sym)
 
-    total = sum(len(v) for v in buckets.values())
+    total = sum(len(v) for v in buckets.values()) + len(flows_only)
     done = 0
     for start, syms in buckets.items():
         step = getattr(source, "batch_size", 1) or 1
         for i in range(0, len(syms), step):
             chunk = syms[i : i + step]
             try:
-                fetched = source.fetch_many(chunk, start, today + timedelta(days=1))
+                fetched = source.fetch_many(chunk, start, fetch_end)
             except Exception:
                 fetched = {}
             for sym in chunk:
@@ -185,11 +197,16 @@ def update(
                     stats["failed"] += 1
                 else:
                     combined = merge(None if force else load(market, sym), df)
-                    if flows and getattr(source, "supports_flows", False):
+                    if want_flows:
                         # 수급 실패가 시세 저장을 막지는 않되, 이유는 남긴다
                         try:
-                            combined = attach_flows(source, sym, combined, start, today)
-                            stats["flows"] += 1
+                            combined, applied = attach_flows(
+                                source, sym, combined, start, fetch_end
+                            )
+                            if applied:
+                                stats["flows"] += 1
+                            else:
+                                stats.setdefault("flow_error", "수급 응답이 비어 있습니다.")
                         except Exception as exc:
                             stats.setdefault("flow_error", f"{type(exc).__name__}: {exc}")
                     save(market, sym, combined)
@@ -197,7 +214,47 @@ def update(
                 done += 1
                 if progress:
                     progress(done, total, sym)
+
+    # 시세는 그대로 두고 수급만 채운다
+    for sym in flows_only:
+        df = load(market, sym)
+        if df is not None and not df.empty:
+            try:
+                updated, applied = attach_flows(
+                    source, sym, df, _flow_start(df, full_start), fetch_end
+                )
+                if applied:
+                    save(market, sym, updated)
+                    stats["flows"] += 1
+                else:
+                    stats.setdefault("flow_error", "수급 응답이 비어 있습니다.")
+            except Exception as exc:
+                stats.setdefault("flow_error", f"{type(exc).__name__}: {exc}")
+        done += 1
+        if progress:
+            progress(done, total, sym)
     return stats
+
+
+def flows_up_to_date(df: pd.DataFrame | None, ref: date) -> bool:
+    """수급 컬럼이 있고 ref 일자까지 값이 채워져 있는지."""
+    if df is None or df.empty:
+        return False
+    present = [c for c in FLOW_COLUMNS if c in df.columns]
+    if not present:
+        return False
+    filled = df[present].dropna(how="all")
+    return bool(len(filled)) and filled.index[-1].date() >= ref
+
+
+def _flow_start(df: pd.DataFrame, fallback: date) -> date:
+    """수급을 어디부터 받을지. 이미 받은 구간이 있으면 그 끝에서 조금 겹쳐서."""
+    present = [c for c in FLOW_COLUMNS if c in df.columns]
+    if present:
+        filled = df[present].dropna(how="all")
+        if len(filled):
+            return filled.index[-1].date() - timedelta(days=OVERLAP_DAYS)
+    return max(fallback, df.index[0].date())
 
 
 def _last_expected_session(today: date) -> date:

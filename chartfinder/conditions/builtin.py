@@ -688,11 +688,15 @@ def up_candle_volume(ctx: Ctx, period: int, ratio: float, min_gain: float) -> fl
 
 
 def _net_buy_days(series, days: int) -> float:
-    """최근 days일 중 순매수였던 날의 비율."""
+    """최근 days일 중 순매수였던 날의 비율.
+
+    당일 수급은 장 마감 후에야 공시되므로 마지막 행이 비어 있는 경우가 흔하다.
+    빈 행은 건너뛰고 값이 있는 최근 days일로 판단한다.
+    """
     if series is None:
         return 0.0
-    window = series.tail(days)
-    if len(window) < days or window.isna().any():
+    window = series.dropna().tail(days)
+    if len(window) < days:
         return 0.0
     return float((window > 0).sum()) / days
 
@@ -736,7 +740,7 @@ def net_buy_volume(ctx: Ctx, days: int, min_shares: float, who: str) -> float:
     available = [s for s in series if s is not None]
     if not available:
         return 0.0
-    total = sum(float(s.tail(days).sum(skipna=True)) for s in available)
+    total = sum(float(s.dropna().tail(days).sum()) for s in available)
     return soft_gt(total, min_shares, tol=max(min_shares * 0.3, 1.0))
 
 

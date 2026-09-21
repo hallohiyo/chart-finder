@@ -296,11 +296,8 @@ class App(tk.Tk):
                     f" · 실패 {stats['failed']}")
             if flows:
                 text += f" · 수급 {stats['flows']}"
-                if not stats["flows"]:
-                    messagebox.showwarning(
-                        "수급 수집 실패",
-                        str(stats.get("flow_error", "수급을 지원하지 않는 시장일 수 있습니다.")),
-                    )
+                if stats.get("flow_error"):
+                    messagebox.showwarning("수급 수집 실패", str(stats["flow_error"]))
             self.status.set(text)
 
         self.status.set("종목 목록을 받는 중…")

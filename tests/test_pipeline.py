@@ -121,7 +121,10 @@ def test_attach_flows_preserves_values_outside_fetched_range(demo_cache):
             recent = df.tail(5)
             return pd.DataFrame({"foreign_net": [999.0] * 5}, index=recent.index)
 
-    updated = cache.attach_flows(RecentOnly(), symbol, df.copy(), date.today(), date.today())
+    updated, applied = cache.attach_flows(
+        RecentOnly(), symbol, df.copy(), date.today(), date.today()
+    )
+    assert applied == 5
     assert float(updated["foreign_net"].iloc[0]) == original_first
     assert float(updated["foreign_net"].iloc[-1]) == 999.0
 
@@ -162,3 +165,105 @@ def test_update_without_flows_reports_no_error(tmp_path, monkeypatch):
     symbols = [t.symbol for t in get_source("demo").list_tickers()][:2]
     stats = cache.update("demo", symbols=symbols, years=1, flows=False)
     assert "flow_error" not in stats
+
+
+def test_flows_are_fetched_even_when_prices_are_current(tmp_path, monkeypatch):
+    """시세가 이미 최신이어도 --flows 로 수급만 채울 수 있어야 한다."""
+    monkeypatch.setenv("CHARTFINDER_HOME", str(tmp_path))
+    from chartfinder.datasource import get_source
+
+    source = get_source("demo")
+    symbols = [t.symbol for t in source.list_tickers()][:3]
+
+    # 1차: 수급 없이 시세만 받는다
+    first = cache.update("demo", symbols=symbols, years=1, flows=False)
+    assert first["updated"] == 3
+    stripped = cache.load("demo", symbols[0]).drop(columns=["foreign_net", "inst_net", "indi_net"])
+    for sym in symbols:
+        df = cache.load("demo", sym)
+        cache.save("demo", sym, df.drop(columns=[c for c in df.columns if c.endswith("_net")]))
+
+    # 2차: 시세는 최신이므로 건너뛰지만 수급은 채워야 한다
+    second = cache.update("demo", symbols=symbols, years=1, flows=True)
+    assert second["flows"] == 3
+    assert second["skipped"] == 0
+    assert "foreign_net" in cache.load("demo", symbols[0]).columns
+    assert stripped is not None  # 원본 시세 컬럼은 그대로
+
+
+def test_flows_up_to_date_detects_missing_and_stale(tmp_path, monkeypatch):
+    monkeypatch.setenv("CHARTFINDER_HOME", str(tmp_path))
+    from chartfinder.datasource import get_source
+
+    source = get_source("demo")
+    symbol = source.list_tickers()[0].symbol
+    df = source.fetch_ohlcv(symbol, date.today() - timedelta(days=400), date.today())
+    last = df.index[-1].date()
+
+    assert cache.flows_up_to_date(df, last) is True
+    assert cache.flows_up_to_date(df.drop(columns=["foreign_net", "inst_net", "indi_net"]), last) is False
+
+    stale = df.copy()
+    stale.loc[stale.index[-3:], ["foreign_net", "inst_net", "indi_net"]] = None
+    assert cache.flows_up_to_date(stale, last) is False
+
+
+def test_third_run_skips_when_flows_already_present(tmp_path, monkeypatch):
+    """수급까지 최신이면 다시 받지 않는다."""
+    monkeypatch.setenv("CHARTFINDER_HOME", str(tmp_path))
+    from chartfinder.datasource import get_source
+
+    symbols = [t.symbol for t in get_source("demo").list_tickers()][:2]
+    cache.update("demo", symbols=symbols, years=1, flows=True)
+    again = cache.update("demo", symbols=symbols, years=1, flows=True)
+    assert again["skipped"] == 2
+    assert again["flows"] == 0
+
+
+def test_empty_flow_response_is_not_counted_as_success(tmp_path, monkeypatch):
+    """수급을 못 받았는데 성공으로 세면 안 된다 (조용한 실패 방지)."""
+    monkeypatch.setenv("CHARTFINDER_HOME", str(tmp_path))
+    import pandas as pd
+
+    from chartfinder.datasource import get_source
+
+    source = get_source("demo")
+    monkeypatch.setattr(source, "fetch_flows", lambda *a, **k: pd.DataFrame(), raising=False)
+    symbols = [t.symbol for t in source.list_tickers()][:2]
+
+    stats = cache.update("demo", symbols=symbols, years=1, flows=True)
+    assert stats["updated"] == 2
+    assert stats["flows"] == 0
+    assert "비어" in str(stats["flow_error"])
+
+
+def test_flow_only_refresh_produces_scorable_data(tmp_path, monkeypatch):
+    """시세만 있는 캐시에 수급을 채우면 수급 조건이 실제로 채점돼야 한다."""
+    monkeypatch.setenv("CHARTFINDER_HOME", str(tmp_path))
+    from chartfinder.datasource import get_source
+    from chartfinder.screener import ConditionSpec
+
+    symbols = [t.symbol for t in get_source("demo").list_tickers()][:5]
+    cache.update("demo", symbols=symbols, years=1, flows=False)
+    for sym in symbols:  # 수급 컬럼을 지워 '시세만 받은 캐시'를 만든다
+        df = cache.load("demo", sym)
+        cache.save("demo", sym, df.drop(columns=[c for c in df.columns if c.endswith("_net")]))
+
+    stats = cache.update("demo", symbols=symbols, years=1, flows=True)
+    assert stats["flows"] == 5
+
+    tickers = [t for t in get_source("demo").list_tickers() if t.symbol in symbols]
+    result = screen("demo", [ConditionSpec("foreign_net_buy")], tickers=tickers)
+    assert result["s_foreign_net_buy"].max() > 0
+
+
+def test_price_and_flow_rows_line_up(tmp_path, monkeypatch):
+    """조회 종료일이 어긋나면 마지막 행 수급이 비어버린다 (회귀 방지)."""
+    monkeypatch.setenv("CHARTFINDER_HOME", str(tmp_path))
+    from chartfinder.datasource import get_source
+
+    symbol = get_source("demo").list_tickers()[0].symbol
+    cache.update("demo", symbols=[symbol], years=1, flows=True)
+
+    df = cache.load("demo", symbol)
+    assert df["foreign_net"].notna().iloc[-1]

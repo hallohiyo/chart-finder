@@ -135,11 +135,8 @@ with st.sidebar:
             if flows:
                 message += f" · 수급 {stats['flows']}"
             st.success(message)
-            if flows and not stats["flows"]:
-                st.warning(
-                    f"수급을 받지 못했습니다: "
-                    f"{stats.get('flow_error', '수급을 지원하지 않는 시장일 수 있습니다.')}"
-                )
+            if flows and stats.get("flow_error"):
+                st.warning(f"수급을 받지 못한 종목이 있습니다: {stats['flow_error']}")
 
     st.header("결과 옵션")
     top = st.slider("상위 N종목", 5, 200, 30, 5)

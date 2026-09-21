@@ -11,7 +11,7 @@ from datetime import date, timedelta
 import numpy as np
 import pandas as pd
 
-from .base import DataSource, Ticker, normalize_ohlcv
+from .base import FLOW_COLUMNS, DataSource, Ticker, normalize_ohlcv
 
 #: 종목마다 다른 성격의 차트가 나오도록 섞어둔 프로필
 _PROFILES = [
@@ -50,6 +50,10 @@ class DemoSource(DataSource):
 
     def fetch_ohlcv(self, symbol: str, start: date, end: date) -> pd.DataFrame:
         return normalize_ohlcv(generate(symbol, start, end))
+
+    def fetch_flows(self, symbol: str, start: date, end: date) -> pd.DataFrame:
+        df = generate(symbol, start, end)
+        return df[[c for c in FLOW_COLUMNS if c in df.columns]]
 
 
 def generate(symbol: str, start: date, end: date) -> pd.DataFrame:

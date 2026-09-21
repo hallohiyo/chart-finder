@@ -223,3 +223,21 @@ def test_macd_hist_weakening_on_topping_chart():
     surge = list(100 * np.exp(np.cumsum([0.04] * 6)))
     topping = calm + surge + list(surge[-1] * np.exp(np.cumsum([-0.005] * 3)))
     assert get("macd_hist_weakening").score(Ctx(make_df(topping))) == 1.0
+
+
+def test_flow_conditions_tolerate_unpublished_last_day():
+    """당일 수급은 장 마감 후 공시된다. 마지막 행이 비어도 최근 공시분으로 판단해야 한다."""
+    df = make_df([100.0] * 40)
+    df["foreign_net"] = [1000.0] * 39 + [None]  # 오늘치 아직 없음
+    df["inst_net"] = [1000.0] * 39 + [None]
+
+    assert get("foreign_net_buy").score(Ctx(df), {"days": 3}) == 1.0
+    assert get("net_buy_volume").score(
+        Ctx(df), {"days": 5, "min_shares": 5000, "who": "foreign"}
+    ) == 1.0
+
+
+def test_flow_conditions_need_enough_published_days():
+    df = make_df([100.0] * 40)
+    df["foreign_net"] = [None] * 38 + [1000.0, None]  # 공시된 날이 하루뿐
+    assert get("foreign_net_buy").score(Ctx(df), {"days": 3}) == 0.0
