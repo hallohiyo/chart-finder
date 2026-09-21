@@ -28,6 +28,23 @@ def _p(name, label, type="int", default=0, min=None, max=None, step=None,
     return Param(name, label, type, default, min, max, step, choices, help)
 
 
+def _hist_zone(ctx: Ctx, hist: pd.Series, below: bool, window: int = 60) -> float:
+    """히스토그램이 0선 아래(또는 위)에 있는 정도.
+
+    히스토그램 크기는 종목·국면마다 제각각이라 절대값이나 주가 대비 %로 자르면
+    완만한 차트에서 0 근처에 붙은 값이 그대로 통과해버린다. 그래서 히스토그램
+    자신의 최근 변동폭으로 정규화해서 판단한다.
+    """
+    value = ctx.last(hist)
+    if value is None:
+        return 0.0
+    scale = hist.tail(window).std(ddof=0)
+    if scale is None or pd.isna(scale) or scale <= 0:
+        return 0.0
+    ratio = value / float(scale)
+    return soft_lt(ratio, 0.0, tol=0.3) if below else soft_gt(ratio, 0.0, tol=0.3)
+
+
 def _recency_score(flags: pd.Series, within: int) -> float:
     """최근 within일 안에 True가 있으면 1.0, 그보다 오래됐으면 감쇠."""
     window = flags.tail(max(within * 3, within + 1))
@@ -168,13 +185,21 @@ def rsi_range(ctx: Ctx, period: int, low: float, high: float) -> float:
         _p("slow", "장기", default=26, min=5, max=120),
         _p("signal", "시그널", default=9, min=2, max=60),
         _p("within", "최근 N일 이내", default=5, min=1, max=60),
+        _p("zone", "교차 위치", "choice", default="any", choices=("any", "below", "above"),
+           help="below=0선 아래(바닥권 초입), above=0선 위(상승 추세 중)"),
     ),
-    description="MACD가 시그널선을 최근 N일 안에 상향 돌파.",
+    description="MACD가 시그널선을 최근 N일 안에 상향 돌파. zone으로 0선 아래(약세권)·위(강세권) 교차를 구분한다.",
     min_bars=60,
 )
-def macd_cross_up(ctx: Ctx, fast: int, slow: int, signal: int, within: int) -> float:
+def macd_cross_up(
+    ctx: Ctx, fast: int, slow: int, signal: int, within: int, zone: str
+) -> float:
     macd_line, signal_line, _ = ctx.macd(fast, slow, signal)
     crossed = (macd_line > signal_line) & (macd_line.shift(1) <= signal_line.shift(1))
+    if zone == "below":
+        crossed &= macd_line < 0
+    elif zone == "above":
+        crossed &= macd_line > 0
     return _recency_score(crossed.fillna(False), within)
 
 
@@ -713,3 +738,60 @@ def net_buy_volume(ctx: Ctx, days: int, min_shares: float, who: str) -> float:
         return 0.0
     total = sum(float(s.tail(days).sum(skipna=True)) for s in available)
     return soft_gt(total, min_shares, tol=max(min_shares * 0.3, 1.0))
+
+
+@condition(
+    "macd_hist_turn_up", "MACD 히스토그램 상승 전환 (초입)", MOMENTUM,
+    params=(
+        _p("fast", "단기", default=12, min=2, max=60),
+        _p("slow", "장기", default=26, min=5, max=120),
+        _p("signal", "시그널", default=9, min=2, max=60),
+        _p("rising_days", "연속 상승 일수", default=2, min=1, max=15),
+        _p("below_zero", "0선 아래에서만", "bool", default=True),
+    ),
+    description=(
+        "MACD 오실레이터(히스토그램)가 저점을 찍고 상승 전환. "
+        "골든크로스보다 먼저 나오는 초입 신호이며, below_zero=True면 0선 아래 구간만 인정한다."
+    ),
+    min_bars=60,
+)
+def macd_hist_turn_up(
+    ctx: Ctx, fast: int, slow: int, signal: int, rising_days: int, below_zero: bool
+) -> float:
+    _, _, hist = ctx.macd(fast, slow, signal)
+    diff = hist.diff()
+    rising = (diff > 0).tail(rising_days)
+    if len(rising) < rising_days or hist.tail(rising_days).isna().any():
+        return 0.0
+    if not bool(rising.iloc[-1]):
+        return 0.0  # 오늘 오르지 않았으면 전환이 아니다
+
+    # rising_days 중 오른 날의 비율 (3일 중 2일이면 0.67)
+    momentum = float(rising.sum()) / rising_days
+    return momentum * (_hist_zone(ctx, hist, below=True) if below_zero else 1.0)
+
+
+@condition(
+    "macd_hist_weakening", "MACD 히스토그램 하락 전환", MOMENTUM,
+    params=(
+        _p("fast", "단기", default=12, min=2, max=60),
+        _p("slow", "장기", default=26, min=5, max=120),
+        _p("signal", "시그널", default=9, min=2, max=60),
+        _p("falling_days", "연속 하락 일수", default=2, min=1, max=15),
+        _p("above_zero", "0선 위에서만", "bool", default=True),
+    ),
+    description="히스토그램이 고점을 찍고 꺾이는 구간. 보유 종목 점검이나 약세 탐색용.",
+    min_bars=60,
+)
+def macd_hist_weakening(
+    ctx: Ctx, fast: int, slow: int, signal: int, falling_days: int, above_zero: bool
+) -> float:
+    _, _, hist = ctx.macd(fast, slow, signal)
+    falling = (hist.diff() < 0).tail(falling_days)
+    if len(falling) < falling_days or hist.tail(falling_days).isna().any():
+        return 0.0
+    if not bool(falling.iloc[-1]):
+        return 0.0
+
+    momentum = float(falling.sum()) / falling_days
+    return momentum * (_hist_zone(ctx, hist, below=False) if above_zero else 1.0)

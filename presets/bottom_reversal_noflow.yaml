@@ -53,10 +53,13 @@ conditions:
     weight: 1.0
     params: {short: 5, long: 20, within: 5}
 
-  # 8. MACD — 시그널선 골든크로스
+  # 8. MACD — 초입 매수신호(히스토그램 상승 전환) + 약세권 골든크로스
+  - key: macd_hist_turn_up
+    weight: 1.5
+    params: {fast: 12, slow: 26, signal: 9, rising_days: 2, below_zero: true}
   - key: macd_cross_up
     weight: 1.5
-    params: {fast: 12, slow: 26, signal: 9, within: 5}
+    params: {fast: 12, slow: 26, signal: 9, within: 5, zone: below}
 
   # 9. 거래량 — 바닥권에서 증가, 상승 캔들에 동반 증가
   - key: near_low

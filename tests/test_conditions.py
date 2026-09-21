@@ -159,3 +159,67 @@ def test_net_buy_volume_sums_selected_investors():
     cond = get("net_buy_volume")
     assert cond.score(Ctx(df), {"days": 5, "min_shares": 100_000, "who": "both"}) == 1.0
     assert cond.score(Ctx(df), {"days": 5, "min_shares": 100_000, "who": "foreign"}) < 1.0
+
+
+def _capitulation_turn(tail_rate: float = 0.005, tail_days: int = 3):
+    """조용히 횡보하다 급락한 뒤 막 돌아선 차트.
+
+    이 구간에서 MACD 히스토그램은 아직 0 아래지만 상승으로 돌아선다.
+    (완만한 하락은 히스토그램이 먼저 0 위로 올라가버려 '초입'이 안 잡힌다)
+    """
+    calm = [100.0] * 80
+    crash = list(100 * np.exp(np.cumsum([-0.04] * 6)))
+    tail = list(crash[-1] * np.exp(np.cumsum([tail_rate] * tail_days)))
+    return make_df(calm + crash + tail)
+
+
+def test_macd_hist_turn_up_fires_at_the_bottom(uptrend):
+    cond = get("macd_hist_turn_up")
+    assert cond.score(Ctx(_capitulation_turn())) == 1.0
+    # 한참 오른 차트는 히스토그램이 0 위라 '초입'이 아니다
+    assert cond.score(Ctx(uptrend)) < 0.5
+
+
+def test_macd_hist_turn_up_precedes_the_golden_cross():
+    """초입 신호는 골든크로스보다 먼저 떠야 한다."""
+    df = _capitulation_turn()
+    assert get("macd_hist_turn_up").score(Ctx(df)) == 1.0
+    assert get("macd_cross_up").score(Ctx(df), {"within": 3}) == 0.0
+
+
+def test_macd_hist_turn_up_needs_the_histogram_to_be_rising():
+    """히스토그램이 아직 내리꽂는 중이면 전환이 아니다.
+
+    기준은 주가 방향이 아니라 히스토그램 방향이다. 주가가 더 빠지는 중이어도
+    히스토그램이 먼저 돌아서면 점수가 나오는 것이 이 신호의 취지다.
+    """
+    still_dropping = _capitulation_turn(tail_rate=-0.04, tail_days=1)
+    assert get("macd_hist_turn_up").score(Ctx(still_dropping)) == 0.0
+
+    price_falling_hist_rising = _capitulation_turn(tail_rate=-0.02)
+    assert get("macd_hist_turn_up").score(Ctx(price_falling_hist_rising)) > 0.0
+
+
+def test_macd_hist_turn_up_ignores_histogram_hugging_zero(flat):
+    """히스토그램이 0에 붙어 있는 밋밋한 차트를 '초입'으로 오인하면 안 된다."""
+    assert get("macd_hist_turn_up").score(Ctx(flat)) < 0.5
+
+
+def test_macd_hist_turn_up_ignores_zero_line_when_asked(uptrend):
+    cond = get("macd_hist_turn_up")
+    assert cond.score(Ctx(uptrend), {"below_zero": False}) >= cond.score(Ctx(uptrend))
+
+
+def test_macd_cross_zone_separates_weak_and_strong_crosses():
+    cond = get("macd_cross_up")
+    rebound = _capitulation_turn(tail_rate=0.03, tail_days=8)
+    # 바닥에서 막 돌아선 교차는 0선 아래에서 일어난다
+    assert cond.score(Ctx(rebound), {"within": 10, "zone": "below"}) > 0.0
+    assert cond.score(Ctx(rebound), {"within": 10, "zone": "above"}) == 0.0
+
+
+def test_macd_hist_weakening_on_topping_chart():
+    calm = [100.0] * 80
+    surge = list(100 * np.exp(np.cumsum([0.04] * 6)))
+    topping = calm + surge + list(surge[-1] * np.exp(np.cumsum([-0.005] * 3)))
+    assert get("macd_hist_weakening").score(Ctx(make_df(topping))) == 1.0

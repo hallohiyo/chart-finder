@@ -88,12 +88,12 @@ chartfinder update -m demo
 chartfinder scan -m demo -c ma_alignment -c volume_surge --top 10 --detail
 ```
 
-## 내장 조건 (40개)
+## 내장 조건 (42개)
 
 | 카테고리 | 조건 |
 |---|---|
 | 추세 | 이동평균 정배열, 골든크로스, 이동평균 위, 이동평균 상승 추세, 이평 눌림목, DMI +DI 상향 돌파, DMI 간격 확대, 이동평균 상승 전환, 이동평균 수렴 |
-| 모멘텀 | RSI 과매도/과매수/구간, RSI 기준선 상향 돌파, MACD 골든크로스, MACD 0선 위, 스토캐스틱 과매도, 스토캐스틱 골든크로스, 기간 수익률 구간, 연속 상승 |
+| 모멘텀 | RSI 과매도/과매수/구간, RSI 기준선 상향 돌파, MACD 골든크로스(강세권/약세권 구분), MACD 히스토그램 상승 전환(초입 매수신호)/하락 전환, MACD 0선 위, 스토캐스틱 과매도, 스토캐스틱 골든크로스, 기간 수익률 구간, 연속 상승 |
 | 변동성 | 볼린저 상단 돌파/하단 이탈/스퀴즈, 볼린저 하단 이탈 후 복귀, ATR 구간 |
 | 거래량 | 거래량 급증, 거래량 감소, 상승 캔들 + 거래량 증가 |
 | 수급 | 외국인 연속 순매수, 기관 연속 순매수, 누적 순매수 수량 |
@@ -132,7 +132,7 @@ def my_rule(ctx: Ctx, period: int) -> float:
 
 | 파일 | 내용 |
 |---|---|
-| `bottom_reversal.yaml` | 바닥권 반등 18종 (볼린저·RSI·수급·DMI·스토캐스틱·이평·MACD·거래량). `--flows` 필요 |
+| `bottom_reversal.yaml` | 바닥권 반등 19종 (볼린저·RSI·수급·DMI·스토캐스틱·이평·MACD·거래량). `--flows` 필요 |
 | `bottom_reversal_noflow.yaml` | 위에서 수급만 제외. 미국 시장이나 수급 미수집 시 |
 | `pullback_buy.yaml` | 정배열 상승 추세 중 20일선 눌림목 |
 | `oversold_rebound.yaml` | 과매도 + 볼린저 하단 이탈 바닥권 |
