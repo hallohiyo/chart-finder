@@ -14,6 +14,9 @@ from datetime import date
 import pandas as pd
 
 OHLCV_COLUMNS = ["open", "high", "low", "close", "volume"]
+#: 종목 목록에 거래소 이름을 담아 두는 임시 컬럼.
+#: 앞에 밑줄을 쓰면 안 된다 — 파이썬 이름 맹글링/식별자 제약에 걸린다.
+EXCHANGE_COL = "cf_exchange"
 #: 투자자별 순매수 (주식 수). 지원하는 소스만 채운다.
 FLOW_COLUMNS = ["foreign_net", "inst_net", "indi_net"]
 

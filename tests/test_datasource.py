@@ -1,0 +1,161 @@
+"""데이터 소스 어댑터 테스트.
+
+외부 라이브러리(FinanceDataReader / yfinance / pykrx)를 가짜 모듈로 갈아끼워
+네트워크 없이 종목 목록·시세·수급 변환 경로를 검증한다.
+"""
+
+import sys
+import types
+from datetime import date
+
+import pandas as pd
+import pytest
+
+from chartfinder.datasource.base import EXCHANGE_COL, normalize_flows, normalize_ohlcv
+
+KOSPI_LISTING = pd.DataFrame(
+    {
+        "Code": ["005930", "000660", "00104K", "900110"],
+        "Name": ["삼성전자", "SK하이닉스", "우선주", "외국기업"],
+        "Market": ["KOSPI"] * 4,
+        "Marcap": [4.5e14, 9.0e13, 1.0e12, None],
+    }
+)
+
+US_LISTING = pd.DataFrame(
+    {
+        "Symbol": ["AAPL", "MSFT", "AAPL", "TEST1"],
+        "Name": ["Apple", "Microsoft", "Apple dup", "테스트"],
+    }
+)
+
+
+def _ohlcv_frame(rows: int = 30) -> pd.DataFrame:
+    index = pd.bdate_range("2024-01-01", periods=rows)
+    return pd.DataFrame(
+        {
+            "Open": [100.0] * rows, "High": [101.0] * rows, "Low": [99.0] * rows,
+            "Close": [100.0] * rows, "Volume": [1_000.0] * rows,
+        },
+        index=index,
+    )
+
+
+@pytest.fixture
+def krx(monkeypatch):
+    fdr = types.ModuleType("FinanceDataReader")
+    fdr.StockListing = lambda key: KOSPI_LISTING.copy()
+    fdr.DataReader = lambda symbol, start, end: _ohlcv_frame()
+    monkeypatch.setitem(sys.modules, "FinanceDataReader", fdr)
+
+    from chartfinder.datasource.krx import KrxSource
+
+    return KrxSource()
+
+
+@pytest.fixture
+def us(monkeypatch):
+    fdr = types.ModuleType("FinanceDataReader")
+    fdr.StockListing = lambda key: US_LISTING.copy()
+    monkeypatch.setitem(sys.modules, "FinanceDataReader", fdr)
+
+    yf = types.ModuleType("yfinance")
+    yf.download = lambda *a, **k: _ohlcv_frame()
+    monkeypatch.setitem(sys.modules, "yfinance", yf)
+
+    from chartfinder.datasource.us import UsSource
+
+    return UsSource()
+
+
+def test_krx_listing_fills_symbol_name_and_exchange(krx):
+    """거래소 컬럼 접근이 깨지지 않아야 한다 (이름 맹글링 회귀 방지)."""
+    tickers = krx.list_tickers("kospi")
+    assert tickers
+    first = tickers[0]
+    assert first.symbol == "005930"
+    assert first.name == "삼성전자"
+    assert first.exchange == "KOSPI"
+    assert first.market == "kr"
+
+
+def test_krx_listing_drops_non_numeric_codes(krx):
+    codes = [t.symbol for t in krx.list_tickers("kospi")]
+    assert codes == ["005930", "000660", "900110"]  # 00104K 는 제외
+
+
+def test_krx_listing_keeps_missing_marcap_as_none(krx):
+    tickers = {t.symbol: t for t in krx.list_tickers("kospi")}
+    assert tickers["005930"].marcap == pytest.approx(4.5e14)
+    assert tickers["900110"].marcap is None
+
+
+def test_krx_rejects_unknown_universe(krx):
+    with pytest.raises(ValueError):
+        krx.list_tickers("sp500")
+
+
+def test_krx_fetch_ohlcv_is_normalized(krx):
+    df = krx.fetch_ohlcv("005930", date(2024, 1, 1), date(2024, 2, 1))
+    assert list(df.columns)[:5] == ["open", "high", "low", "close", "volume"]
+    assert df.index.is_monotonic_increasing
+
+
+def test_us_listing_deduplicates_symbols(us):
+    symbols = [t.symbol for t in us.list_tickers("sp500")]
+    assert symbols.count("AAPL") == 1
+    assert "TEST1" not in symbols  # 숫자가 섞인 티커는 제외
+    assert all(t.exchange for t in us.list_tickers("sp500"))
+
+
+def test_krx_fetch_flows_normalizes_pykrx_columns(krx, monkeypatch):
+    index = pd.bdate_range("2024-01-01", periods=3)
+    raw = pd.DataFrame(
+        {
+            "기관합계": [100, -50, 20],
+            "기타법인": [1, 2, 3],
+            "개인": [-200, 60, -30],
+            "외국인합계": [99, -12, 7],
+            "전체": [0, 0, 0],
+        },
+        index=index,
+    )
+    stock = types.ModuleType("stock")
+    stock.get_market_trading_volume_by_date = lambda *a, **k: raw.copy()
+    pykrx = types.ModuleType("pykrx")
+    pykrx.stock = stock
+    monkeypatch.setitem(sys.modules, "pykrx", pykrx)
+
+    flows = krx.fetch_flows("005930", date(2024, 1, 1), date(2024, 1, 3))
+    assert list(flows.columns) == ["foreign_net", "inst_net", "indi_net"]
+    assert flows["foreign_net"].tolist() == [99, -12, 7]
+    assert flows["inst_net"].tolist() == [100, -50, 20]
+
+
+def test_flows_normalizer_handles_multiindex_columns():
+    index = pd.bdate_range("2024-01-01", periods=2)
+    raw = pd.DataFrame(
+        [[1, 2, 3, 4], [5, 6, 7, 8]],
+        index=index,
+        columns=pd.MultiIndex.from_product([["순매수", "매수"], ["외국인합계", "기관합계"]]),
+    )
+    flows = normalize_flows(raw)
+    assert flows["foreign_net"].tolist() == [1, 5]
+
+
+def test_flows_normalizer_survives_unexpected_shape():
+    assert normalize_flows(pd.DataFrame()).empty
+    assert list(normalize_flows(pd.DataFrame({"뭔가": [1, 2]})).columns) == [
+        "foreign_net", "inst_net", "indi_net"
+    ]
+
+
+def test_ohlcv_normalizer_rejects_missing_columns():
+    with pytest.raises(ValueError):
+        normalize_ohlcv(pd.DataFrame({"Open": [1.0]}))
+
+
+def test_exchange_column_name_is_attribute_safe():
+    """itertuples/getattr 로 접근해도 안전한 이름이어야 한다."""
+    assert EXCHANGE_COL.isidentifier()
+    assert not EXCHANGE_COL.startswith("_")

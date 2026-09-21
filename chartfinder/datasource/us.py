@@ -6,7 +6,7 @@ from datetime import date
 
 import pandas as pd
 
-from .base import DataSource, Ticker, normalize_ohlcv
+from .base import EXCHANGE_COL, DataSource, Ticker, normalize_ohlcv
 
 _LISTING_KEY = {
     "sp500": "S&P500",
@@ -39,7 +39,7 @@ class UsSource(DataSource):
         frames = []
         for key in keys:
             df = self._fdr.StockListing(key)
-            df["__exchange"] = key
+            df[EXCHANGE_COL] = key
             frames.append(df)
         listing = pd.concat(frames, ignore_index=True)
 
@@ -48,17 +48,17 @@ class UsSource(DataSource):
 
         seen: set[str] = set()
         tickers: list[Ticker] = []
-        for row in listing.itertuples(index=False):
-            sym = str(getattr(row, sym_col, "")).strip().upper()
+        for row in listing.to_dict("records"):
+            sym = str(row.get(sym_col, "")).strip().upper()
             if not sym or sym in seen or not _looks_like_symbol(sym):
                 continue
             seen.add(sym)
             tickers.append(
                 Ticker(
                     symbol=sym,
-                    name=str(getattr(row, name_col, sym)).strip() or sym,
+                    name=str(row.get(name_col, sym)).strip() or sym,
                     market=self.market,
-                    exchange=str(row.__exchange),
+                    exchange=str(row.get(EXCHANGE_COL, "")),
                 )
             )
         return tickers

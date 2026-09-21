@@ -6,7 +6,7 @@ from datetime import date
 
 import pandas as pd
 
-from .base import DataSource, Ticker, normalize_flows, normalize_ohlcv
+from .base import EXCHANGE_COL, DataSource, Ticker, normalize_flows, normalize_ohlcv
 
 
 class KrxSource(DataSource):
@@ -28,7 +28,7 @@ class KrxSource(DataSource):
         frames = []
         for mkt in (["KOSPI", "KOSDAQ"] if universe == "all" else [universe.upper()]):
             df = self._fdr.StockListing(mkt)
-            df["__exchange"] = mkt
+            df[EXCHANGE_COL] = mkt
             frames.append(df)
         listing = pd.concat(frames, ignore_index=True)
 
@@ -37,21 +37,21 @@ class KrxSource(DataSource):
         marcap_col = _first_col(listing, ["Marcap", "MarketCap"], required=False)
 
         tickers: list[Ticker] = []
-        for row in listing.itertuples(index=False):
-            code = str(getattr(row, code_col, "")).strip()
-            name = str(getattr(row, name_col, "")).strip()
+        for row in listing.to_dict("records"):
+            code = str(row.get(code_col, "")).strip()
+            name = str(row.get(name_col, "")).strip()
             if not code or not name:
                 continue
             # 스팩/우선주/리츠 등 6자리 숫자가 아닌 코드는 제외
             if not (len(code) == 6 and code.isdigit()):
                 continue
-            marcap = getattr(row, marcap_col, None) if marcap_col else None
+            marcap = row.get(marcap_col) if marcap_col else None
             tickers.append(
                 Ticker(
                     symbol=code,
                     name=name,
                     market=self.market,
-                    exchange=str(row.__exchange),
+                    exchange=str(row.get(EXCHANGE_COL, "")),
                     marcap=float(marcap) if pd.notna(marcap) else None,
                 )
             )
