@@ -266,4 +266,6 @@ def test_price_and_flow_rows_line_up(tmp_path, monkeypatch):
     cache.update("demo", symbols=[symbol], years=1, flows=True)
 
     df = cache.load("demo", symbol)
-    assert df["foreign_net"].notna().iloc[-1]
+    # 당일치는 아직 공시 전일 수 있으므로 마지막 한 행까지는 비어도 된다
+    assert df["foreign_net"].tail(2).notna().any()
+    assert df["foreign_net"].iloc[:-1].notna().all()

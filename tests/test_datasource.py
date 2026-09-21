@@ -159,3 +159,68 @@ def test_exchange_column_name_is_attribute_safe():
     """itertuples/getattr 로 접근해도 안전한 이름이어야 한다."""
     assert EXCHANGE_COL.isidentifier()
     assert not EXCHANGE_COL.startswith("_")
+
+
+def test_krx_flows_never_request_future_dates(krx, monkeypatch):
+    """미래 날짜를 넣으면 KRX 가 빈 응답을 준다. 종료일을 오늘로 잘라야 한다."""
+    calls = []
+    stock = types.ModuleType("stock")
+
+    def record(fromdate, todate, ticker, **kwargs):
+        calls.append((fromdate, todate))
+        index = pd.bdate_range(
+            pd.Timestamp(fromdate), min(pd.Timestamp(todate), pd.Timestamp(date.today()))
+        )
+        return pd.DataFrame(
+            {"외국인합계": [1] * len(index), "기관합계": [2] * len(index)}, index=index
+        )
+
+    stock.get_market_trading_volume_by_date = record
+    pykrx = types.ModuleType("pykrx")
+    pykrx.stock = stock
+    monkeypatch.setitem(sys.modules, "pykrx", pykrx)
+
+    krx.fetch_flows("005930", date.today() - pd.Timedelta(days=10).to_pytimedelta(),
+                    date.today() + pd.Timedelta(days=5).to_pytimedelta())
+    assert calls
+    for _, todate in calls:
+        assert pd.Timestamp(todate).date() <= date.today()
+
+
+def test_krx_flows_are_requested_in_chunks(krx, monkeypatch):
+    """긴 기간을 한 번에 요청하면 빈 응답이 오므로 나눠서 받아야 한다."""
+    from chartfinder.datasource.krx import FLOW_CHUNK_DAYS
+
+    calls = []
+    stock = types.ModuleType("stock")
+
+    def record(fromdate, todate, ticker, **kwargs):
+        calls.append((pd.Timestamp(fromdate).date(), pd.Timestamp(todate).date()))
+        index = pd.bdate_range(fromdate, todate)
+        return pd.DataFrame({"외국인합계": [1] * len(index)}, index=index)
+
+    stock.get_market_trading_volume_by_date = record
+    pykrx = types.ModuleType("pykrx")
+    pykrx.stock = stock
+    monkeypatch.setitem(sys.modules, "pykrx", pykrx)
+
+    start = date.today() - pd.Timedelta(days=700).to_pytimedelta()
+    flows = krx.fetch_flows("005930", start, date.today())
+
+    assert len(calls) >= 4  # 700일이면 180일 단위로 최소 4회
+    for chunk_start, chunk_end in calls:
+        assert (chunk_end - chunk_start).days < FLOW_CHUNK_DAYS
+    assert not flows.empty
+    assert not flows.index.duplicated().any()
+    assert flows.index.is_monotonic_increasing
+
+
+def test_krx_flows_return_empty_when_range_is_invalid(krx, monkeypatch):
+    stock = types.ModuleType("stock")
+    stock.get_market_trading_volume_by_date = lambda *a, **k: pd.DataFrame()
+    pykrx = types.ModuleType("pykrx")
+    pykrx.stock = stock
+    monkeypatch.setitem(sys.modules, "pykrx", pykrx)
+
+    future = date.today() + pd.Timedelta(days=30).to_pytimedelta()
+    assert krx.fetch_flows("005930", future, future).empty

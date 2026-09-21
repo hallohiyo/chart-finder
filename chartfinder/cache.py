@@ -206,7 +206,10 @@ def update(
                             if applied:
                                 stats["flows"] += 1
                             else:
-                                stats.setdefault("flow_error", "수급 응답이 비어 있습니다.")
+                                stats.setdefault(
+                                    "flow_error",
+                                    f"수급 응답이 비어 있습니다 ({sym}, {start}~{today}).",
+                                )
                         except Exception as exc:
                             stats.setdefault("flow_error", f"{type(exc).__name__}: {exc}")
                     save(market, sym, combined)
@@ -227,7 +230,11 @@ def update(
                     save(market, sym, updated)
                     stats["flows"] += 1
                 else:
-                    stats.setdefault("flow_error", "수급 응답이 비어 있습니다.")
+                    stats.setdefault(
+                        "flow_error",
+                        f"수급 응답이 비어 있습니다 "
+                        f"({sym}, {_flow_start(df, full_start)}~{today}).",
+                    )
             except Exception as exc:
                 stats.setdefault("flow_error", f"{type(exc).__name__}: {exc}")
         done += 1

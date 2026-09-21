@@ -125,6 +125,84 @@ def show_status(
     console.print(f"용량      : {info['size_mb']} MB")
 
 
+@app.command("doctor")
+def doctor(
+    market: str = typer.Option("kr", "--market", "-m", help=f"시장 {MARKETS}"),
+    symbol: Optional[str] = typer.Option(None, "--symbol", "-s", help="확인할 종목 (생략 시 첫 종목)"),
+    days: int = typer.Option(30, "--days", help="조회할 기간(일)"),
+) -> None:
+    """데이터 수집이 어디서 막히는지 단계별로 보여준다."""
+    import traceback
+    from datetime import date, timedelta
+
+    from .datasource import get_source
+
+    end = date.today()
+    start = end - timedelta(days=days)
+
+    def step(label: str, fn):
+        try:
+            value = fn()
+        except Exception as exc:
+            console.print(f"[red]✗[/] {label}: {type(exc).__name__}: {exc}")
+            frames = traceback.format_exc().strip().splitlines()
+            console.print(f"[dim]   {frames[-3].strip() if len(frames) > 2 else ''}[/]")
+            return None
+        console.print(f"[green]✓[/] {label}")
+        return value
+
+    console.print(f"[bold]{market}[/] · {start} ~ {end}\n")
+
+    source = step("데이터 소스 생성", lambda: get_source(market))
+    if source is None:
+        raise typer.Exit(code=1)
+
+    universe = default_universe(market)
+    tickers = step(f"종목 목록 ({universe})", lambda: source.list_tickers(universe))
+    if tickers:
+        console.print(f"   {len(tickers)}종목 · 예: {tickers[0].symbol} {tickers[0].name}")
+        symbol = symbol or tickers[0].symbol
+
+    if not symbol:
+        raise typer.Exit(code=1)
+
+    ohlcv = step(f"시세 조회 ({symbol})", lambda: source.fetch_ohlcv(symbol, start, end))
+    if ohlcv is not None and not ohlcv.empty:
+        console.print(f"   {len(ohlcv)}행 · {ohlcv.index[0].date()} ~ {ohlcv.index[-1].date()}")
+        console.print(f"   컬럼: {list(ohlcv.columns)}")
+
+    if not getattr(source, "supports_flows", False):
+        console.print(f"[dim]·[/] 수급: {market} 시장은 지원하지 않습니다.")
+        return
+
+    # 정규화 전 원본 응답을 그대로 보여준다 (형식이 바뀌었는지 확인용)
+    if market != "kr":
+        flows = step(f"수급 조회 ({symbol})", lambda: source.fetch_flows(symbol, start, end))
+        if flows is not None and not flows.empty:
+            console.print(f"   {len(flows)}행 · 컬럼: {list(flows.columns)}")
+        return
+
+    def raw_flows():
+        from pykrx import stock
+
+        return stock.get_market_trading_volume_by_date(
+            start.strftime("%Y%m%d"), end.strftime("%Y%m%d"), symbol
+        )
+
+    raw = step(f"수급 원본 응답 ({symbol})", raw_flows)
+    if raw is not None:
+        console.print(f"   {len(raw)}행 · 컬럼: {list(raw.columns)}")
+        if len(raw):
+            console.print(f"[dim]{raw.tail(3)}[/]")
+        else:
+            console.print("[yellow]   응답이 비어 있습니다 (KRX 차단·기간 제한·휴장일 가능)[/]")
+
+    flows = step(f"수급 정규화 ({symbol})", lambda: source.fetch_flows(symbol, start, end))
+    if flows is not None and not flows.empty:
+        console.print(f"   {len(flows)}행 · 컬럼: {list(flows.columns)}")
+        console.print(f"[dim]{flows.tail(3)}[/]")
+
+
 @app.command("scan")
 def scan(
     cond: list[str] = typer.Option(

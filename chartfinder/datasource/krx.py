@@ -2,11 +2,15 @@
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, timedelta
 
 import pandas as pd
 
 from .base import EXCHANGE_COL, DataSource, Ticker, normalize_flows, normalize_ohlcv
+
+
+#: KRX 일별추이를 한 번에 조회할 최대 일수. 길면 빈 응답이 돌아온다.
+FLOW_CHUNK_DAYS = 180
 
 
 class KrxSource(DataSource):
@@ -62,7 +66,11 @@ class KrxSource(DataSource):
         return normalize_ohlcv(df)
 
     def fetch_flows(self, symbol: str, start: date, end: date) -> pd.DataFrame:
-        """외국인·기관·개인 일별 순매수 (주식 수). pykrx 사용."""
+        """외국인·기관·개인 일별 순매수 (주식 수). pykrx 사용.
+
+        KRX 일별추이 조회는 미래 날짜나 긴 기간을 넣으면 빈 응답을 주므로,
+        종료일을 오늘로 자르고 FLOW_CHUNK_DAYS 단위로 나눠 요청한다.
+        """
         if self._pykrx is None:
             try:
                 from pykrx import stock
@@ -73,10 +81,26 @@ class KrxSource(DataSource):
 
             self._pykrx = stock
 
-        raw = self._pykrx.get_market_trading_volume_by_date(
-            start.strftime("%Y%m%d"), end.strftime("%Y%m%d"), symbol
-        )
-        return normalize_flows(raw)
+        end = min(end, date.today())
+        if start > end:
+            return pd.DataFrame()
+
+        frames = []
+        cursor = start
+        while cursor <= end:
+            chunk_end = min(cursor + timedelta(days=FLOW_CHUNK_DAYS - 1), end)
+            raw = self._pykrx.get_market_trading_volume_by_date(
+                cursor.strftime("%Y%m%d"), chunk_end.strftime("%Y%m%d"), symbol
+            )
+            chunk = normalize_flows(raw)
+            if not chunk.empty:
+                frames.append(chunk)
+            cursor = chunk_end + timedelta(days=1)
+
+        if not frames:
+            return pd.DataFrame()
+        merged = pd.concat(frames)
+        return merged[~merged.index.duplicated(keep="last")].sort_index()
 
 
 def _first_col(df: pd.DataFrame, candidates: list[str], required: bool = True) -> str | None:
