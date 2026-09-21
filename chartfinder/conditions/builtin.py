@@ -18,12 +18,14 @@ MOMENTUM = "모멘텀"
 VOLATILITY = "변동성"
 VOLUME = "거래량"
 POSITION = "가격위치"
+FLOW = "수급"
 PATTERN = "패턴"
 FILTER = "필터"
 
 
-def _p(name, label, type="int", default=0, min=None, max=None, step=None, help=""):
-    return Param(name, label, type, default, min, max, step, help=help)
+def _p(name, label, type="int", default=0, min=None, max=None, step=None,
+       choices=(), help=""):
+    return Param(name, label, type, default, min, max, step, choices, help)
 
 
 def _recency_score(flags: pd.Series, within: int) -> float:
@@ -493,3 +495,221 @@ def near_price(ctx: Ctx, target: float, tol_pct: float) -> float:
     if close is None or target <= 0:
         return 0.0
     return soft_near((close / target - 1.0) * 100.0, 0.0, tol=tol_pct)
+
+
+# --------------------------------------------------------------------------- 반등 확인 신호
+
+
+@condition(
+    "bb_lower_recovery", "볼린저 하단 이탈 후 복귀", VOLATILITY,
+    params=(
+        _p("period", "기간", default=20, min=5, max=120),
+        _p("mult", "표준편차 배수", "float", default=2.0, min=0.5, max=4.0, step=0.1),
+        _p("within", "이탈 후 N일 이내", default=5, min=1, max=30),
+    ),
+    description="최근 N일 안에 하단을 이탈했다가 현재는 밴드 안으로 돌아온 상태.",
+)
+def bb_lower_recovery(ctx: Ctx, period: int, mult: float, within: int) -> float:
+    lower, _, _ = ctx.bollinger(period, mult)
+    broke = (ctx.close < lower).fillna(False)
+    if not bool(broke.tail(within).any()):
+        return 0.0
+    # 이탈 이력이 있고 지금은 밴드 안이어야 '복귀'
+    inside = soft_gt(ctx.last(ctx.close), ctx.last(lower) or 0.0, tol=1e-9)
+    return _recency_score(broke, within) * inside
+
+
+@condition(
+    "rsi_cross_up", "RSI 기준선 상향 돌파", MOMENTUM,
+    params=(
+        _p("period", "RSI 기간", default=14, min=2, max=60),
+        _p("threshold", "기준선", "float", default=30.0, min=5.0, max=95.0, step=1.0),
+        _p("within", "최근 N일 이내", default=5, min=1, max=30),
+    ),
+    description="RSI가 기준선 아래에 있다가 위로 올라선 시점이 최근일수록 높은 점수.",
+)
+def rsi_cross_up(ctx: Ctx, period: int, threshold: float, within: int) -> float:
+    values = ctx.rsi(period)
+    crossed = (values > threshold) & (values.shift(1) <= threshold)
+    return _recency_score(crossed.fillna(False), within)
+
+
+@condition(
+    "dmi_cross_up", "DMI +DI 상향 돌파", TREND,
+    params=(
+        _p("period", "DMI 기간", default=14, min=2, max=60),
+        _p("within", "최근 N일 이내", default=5, min=1, max=30),
+    ),
+    description="+DI가 -DI를 아래에서 위로 돌파 (추세 전환 신호).",
+    min_bars=40,
+)
+def dmi_cross_up(ctx: Ctx, period: int, within: int) -> float:
+    plus_di, minus_di, _ = ctx.dmi(period)
+    crossed = (plus_di > minus_di) & (plus_di.shift(1) <= minus_di.shift(1))
+    return _recency_score(crossed.fillna(False), within)
+
+
+@condition(
+    "dmi_spread_widening", "DMI 간격 확대", TREND,
+    params=(
+        _p("period", "DMI 기간", default=14, min=2, max=60),
+        _p("lookback", "비교 기준 일수", default=3, min=1, max=30),
+        _p("min_spread", "최소 간격", "float", default=3.0, min=0.0, max=50.0, step=0.5),
+    ),
+    description="+DI가 -DI 위에 있고, 둘의 간격이 lookback일 전보다 벌어지는 중.",
+    min_bars=40,
+)
+def dmi_spread_widening(ctx: Ctx, period: int, lookback: int, min_spread: float) -> float:
+    plus_di, minus_di, _ = ctx.dmi(period)
+    spread = plus_di - minus_di
+    now, before = ctx.last(spread), ctx.last(spread, lookback)
+    if now is None or before is None:
+        return 0.0
+    above = soft_gt(now, min_spread, tol=max(min_spread, 2.0))
+    widening = soft_gt(now - before, 0.0, tol=2.0)
+    return above * widening
+
+
+@condition(
+    "stoch_oversold", "스토캐스틱 과매도", MOMENTUM,
+    params=(
+        _p("period", "기간", default=14, min=3, max=60),
+        _p("smooth_k", "%K 평활", default=3, min=1, max=15),
+        _p("smooth_d", "%D 평활", default=3, min=1, max=15),
+        _p("threshold", "기준값 이하", "float", default=20.0, min=1.0, max=50.0, step=1.0),
+    ),
+    description="Slow %K가 과매도 기준 이하.",
+    min_bars=40,
+)
+def stoch_oversold(
+    ctx: Ctx, period: int, smooth_k: int, smooth_d: int, threshold: float
+) -> float:
+    slow_k, _ = ctx.stochastic(period, smooth_k, smooth_d)
+    return soft_lt(ctx.last(slow_k), threshold, tol=8.0)
+
+
+@condition(
+    "stoch_cross_up", "스토캐스틱 골든크로스", MOMENTUM,
+    params=(
+        _p("period", "기간", default=14, min=3, max=60),
+        _p("smooth_k", "%K 평활", default=3, min=1, max=15),
+        _p("smooth_d", "%D 평활", default=3, min=1, max=15),
+        _p("within", "최근 N일 이내", default=5, min=1, max=30),
+        _p("max_level", "교차 시 최대 레벨", "float", default=40.0, min=5.0, max=100.0, step=5.0),
+    ),
+    description="%K가 %D를 아래에서 위로 돌파. 과매도권(max_level 이하)에서의 교차만 인정.",
+    min_bars=40,
+)
+def stoch_cross_up(
+    ctx: Ctx, period: int, smooth_k: int, smooth_d: int, within: int, max_level: float
+) -> float:
+    slow_k, slow_d = ctx.stochastic(period, smooth_k, smooth_d)
+    crossed = (slow_k > slow_d) & (slow_k.shift(1) <= slow_d.shift(1)) & (slow_d <= max_level)
+    return _recency_score(crossed.fillna(False), within)
+
+
+@condition(
+    "ma_turn_up", "이동평균 상승 전환", TREND,
+    params=(
+        _p("period", "이평 기간", default=5, min=2, max=120),
+        _p("within", "최근 N일 이내", default=3, min=1, max=20),
+        _p("confirm", "전환 전 하락 일수", default=2, min=1, max=20),
+    ),
+    description="내리던 이동평균이 방향을 틀어 올라선 시점이 최근일수록 높은 점수.",
+)
+def ma_turn_up(ctx: Ctx, period: int, within: int, confirm: int) -> float:
+    ma = ctx.ma(period)
+    rising = ma.diff() > 0
+    # 직전 confirm일 동안 내리다가 오늘 오른 지점이 '전환'
+    was_falling = (~rising).shift(1).rolling(confirm, min_periods=confirm).sum() == confirm
+    turned = rising & was_falling.fillna(False)
+    return _recency_score(turned.fillna(False), within)
+
+
+@condition(
+    "ma_converging", "이동평균 수렴", TREND,
+    params=(
+        _p("short", "단기 이평", default=5, min=2, max=60),
+        _p("long", "장기 이평", default=20, min=3, max=240),
+        _p("max_gap", "최대 이격 (%)", "float", default=3.0, min=0.1, max=20.0, step=0.5),
+    ),
+    description="단기 이평이 장기 이평에 근접 (골든크로스 직전 구간).",
+)
+def ma_converging(ctx: Ctx, short: int, long: int, max_gap: float) -> float:
+    fast, slow = ctx.last(ctx.ma(short)), ctx.last(ctx.ma(long))
+    if not fast or not slow:
+        return 0.0
+    gap = abs(fast / slow - 1.0) * 100.0
+    return soft_lt(gap, max_gap, tol=max_gap)
+
+
+@condition(
+    "up_candle_volume", "상승 캔들 + 거래량 증가", VOLUME,
+    params=(
+        _p("period", "평균 기간", default=20, min=3, max=120),
+        _p("ratio", "평균 대비 배수", "float", default=1.5, min=1.0, max=10.0, step=0.1),
+        _p("min_gain", "최소 상승률 (%)", "float", default=0.0, min=-5.0, max=30.0, step=0.5),
+    ),
+    description="종가가 오른 날에 거래량도 함께 늘었는지. 둘 다 만족해야 점수가 나온다.",
+)
+def up_candle_volume(ctx: Ctx, period: int, ratio: float, min_gain: float) -> float:
+    gain = ctx.last(ctx.close.pct_change() * 100.0)
+    volume_up = soft_gt(ctx.last(ctx.volume_ratio(period)), ratio, tol=ratio * 0.3)
+    return soft_gt(gain, min_gain, tol=1.5) * volume_up
+
+
+# --------------------------------------------------------------------------- 수급
+# 외국인·기관 순매수는 `update --flows` 로 받은 캐시에서만 값이 나온다 (한국 시장 전용).
+
+
+def _net_buy_days(series, days: int) -> float:
+    """최근 days일 중 순매수였던 날의 비율."""
+    if series is None:
+        return 0.0
+    window = series.tail(days)
+    if len(window) < days or window.isna().any():
+        return 0.0
+    return float((window > 0).sum()) / days
+
+
+@condition(
+    "foreign_net_buy", "외국인 연속 순매수", FLOW,
+    params=(_p("days", "연속 일수", default=3, min=1, max=20),),
+    description="최근 N일 연속 외국인 순매수. 일부만 맞으면 그 비율만큼 부분점수.",
+    min_bars=5,
+)
+def foreign_net_buy(ctx: Ctx, days: int) -> float:
+    return _net_buy_days(ctx.flow("foreign_net"), days)
+
+
+@condition(
+    "inst_net_buy", "기관 연속 순매수", FLOW,
+    params=(_p("days", "연속 일수", default=3, min=1, max=20),),
+    description="최근 N일 연속 기관 순매수.",
+    min_bars=5,
+)
+def inst_net_buy(ctx: Ctx, days: int) -> float:
+    return _net_buy_days(ctx.flow("inst_net"), days)
+
+
+@condition(
+    "net_buy_volume", "누적 순매수 수량", FLOW,
+    params=(
+        _p("days", "누적 일수", default=5, min=1, max=60),
+        _p("min_shares", "최소 순매수 (주)", "float", default=100_000.0, min=0.0, max=1e9, step=10_000.0),
+        _p("who", "대상", "choice", default="both", choices=("foreign", "inst", "both")),
+    ),
+    description="외국인/기관의 N일 누적 순매수 주식 수가 기준 이상.",
+    min_bars=5,
+)
+def net_buy_volume(ctx: Ctx, days: int, min_shares: float, who: str) -> float:
+    series = []
+    if who in ("foreign", "both"):
+        series.append(ctx.flow("foreign_net"))
+    if who in ("inst", "both"):
+        series.append(ctx.flow("inst_net"))
+    available = [s for s in series if s is not None]
+    if not available:
+        return 0.0
+    total = sum(float(s.tail(days).sum(skipna=True)) for s in available)
+    return soft_gt(total, min_shares, tol=max(min_shares * 0.3, 1.0))

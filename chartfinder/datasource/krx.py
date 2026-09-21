@@ -6,17 +6,19 @@ from datetime import date
 
 import pandas as pd
 
-from .base import DataSource, Ticker, normalize_ohlcv
+from .base import DataSource, Ticker, normalize_flows, normalize_ohlcv
 
 
 class KrxSource(DataSource):
     market = "kr"
     universes = ("all", "kospi", "kosdaq")
+    supports_flows = True
 
     def __init__(self) -> None:
         import FinanceDataReader as fdr  # 지연 import: 네트워크 의존 모듈
 
         self._fdr = fdr
+        self._pykrx = None  # 수급을 쓸 때만 로드
 
     def list_tickers(self, universe: str = "all") -> list[Ticker]:
         universe = universe.lower()
@@ -58,6 +60,18 @@ class KrxSource(DataSource):
     def fetch_ohlcv(self, symbol: str, start: date, end: date) -> pd.DataFrame:
         df = self._fdr.DataReader(symbol, str(start), str(end))
         return normalize_ohlcv(df)
+
+    def fetch_flows(self, symbol: str, start: date, end: date) -> pd.DataFrame:
+        """외국인·기관·개인 일별 순매수 (주식 수). pykrx 사용."""
+        if self._pykrx is None:
+            from pykrx import stock
+
+            self._pykrx = stock
+
+        raw = self._pykrx.get_market_trading_volume_by_date(
+            start.strftime("%Y%m%d"), end.strftime("%Y%m%d"), symbol
+        )
+        return normalize_flows(raw)
 
 
 def _first_col(df: pd.DataFrame, candidates: list[str], required: bool = True) -> str | None:

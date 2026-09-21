@@ -27,6 +27,7 @@ _PROFILES = [
 class DemoSource(DataSource):
     market = "demo"
     universes = ("all",)
+    supports_flows = True  # 합성 수급 데이터가 일봉에 함께 들어 있다
 
     def __init__(self, count: int = 60) -> None:
         self.count = count
@@ -76,10 +77,19 @@ def generate(symbol: str, start: date, end: date) -> pd.DataFrame:
     spikes = rng.choice(n, size=max(1, n // 60), replace=False)
     volume[spikes] *= rng.uniform(3, 8, size=len(spikes))
 
+    # 수급(외국인·기관 순매수)도 흉내낸다. 주가 등락과 약하게 연동시켜
+    # '수급이 붙으면 오른다' 정도의 관계가 보이게 한다.
+    drift_signal = np.concatenate([[0.0], np.diff(np.log(close))])
+    foreign = (drift_signal * volume * rng.uniform(0.2, 0.5)
+               + rng.normal(0, volume.mean() * 0.02, n)).round()
+    inst = (drift_signal * volume * rng.uniform(0.1, 0.4)
+            + rng.normal(0, volume.mean() * 0.02, n)).round()
+
     return pd.DataFrame(
         {
             "open": open_, "high": high, "low": low, "close": close,
             "volume": volume, "value": volume * close,
+            "foreign_net": foreign, "inst_net": inst, "indi_net": -(foreign + inst),
         },
         index=index,
     )

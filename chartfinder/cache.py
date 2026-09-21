@@ -112,15 +112,37 @@ def merge(old: pd.DataFrame | None, new: pd.DataFrame) -> pd.DataFrame:
     return combined
 
 
+def attach_flows(
+    source, symbol: str, df: pd.DataFrame, start: date, end: date
+) -> pd.DataFrame:
+    """투자자별 순매수를 일봉 프레임에 컬럼으로 붙인다.
+
+    증분 갱신 시 받아온 구간만 덮어쓰고 그 밖의 기존 값은 보존한다.
+    """
+    flows = source.fetch_flows(symbol, start, end)
+    if flows is None or flows.empty:
+        return df
+    for col in flows.columns:
+        if col not in df.columns:
+            df[col] = pd.NA
+    df.update(flows)
+    return df
+
+
 def update(
     market: str,
     universe: str = "all",
     years: float = 2.0,
     symbols: list[str] | None = None,
     force: bool = False,
+    flows: bool = False,
     progress: ProgressFn | None = None,
 ) -> dict[str, int]:
-    """캐시를 최신 상태로 만든다. {'updated': n, 'skipped': n, 'failed': n} 반환."""
+    """캐시를 최신 상태로 만든다.
+
+    flows=True면 외국인·기관 순매수도 함께 받는다 (지원하는 시장만, 종목당 1회 요청).
+    {'updated': n, 'skipped': n, 'failed': n, 'flows': n} 반환.
+    """
     source = get_source(market)
     if symbols is None:
         symbols = [t.symbol for t in get_tickers(market, universe, refresh=force)]
@@ -128,7 +150,7 @@ def update(
     today = date.today()
     full_start = today - timedelta(days=int(365.25 * years) + 40)
 
-    stats = {"updated": 0, "skipped": 0, "failed": 0}
+    stats = {"updated": 0, "skipped": 0, "failed": 0, "flows": 0}
 
     # 어디까지 받아야 하는지에 따라 종목을 묶는다 (배치 다운로드용)
     buckets: dict[date, list[str]] = {}
@@ -161,7 +183,14 @@ def update(
                 if df is None or df.empty:
                     stats["failed"] += 1
                 else:
-                    save(market, sym, merge(None if force else load(market, sym), df))
+                    combined = merge(None if force else load(market, sym), df)
+                    if flows and getattr(source, "supports_flows", False):
+                        try:
+                            combined = attach_flows(source, sym, combined, start, today)
+                            stats["flows"] += 1
+                        except Exception:
+                            pass  # 수급 실패가 시세 저장을 막지는 않는다
+                    save(market, sym, combined)
                     stats["updated"] += 1
                 done += 1
                 if progress:

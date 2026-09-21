@@ -157,6 +157,9 @@ class App(tk.Tk):
         self.strict = tk.BooleanVar(value=False)
         ttk.Checkbutton(bar, text="엄격 모드", variable=self.strict).pack(side="left", padx=(0, 12))
 
+        self.flows = tk.BooleanVar(value=False)
+        ttk.Checkbutton(bar, text="수급 포함", variable=self.flows).pack(side="left", padx=(0, 8))
+
         ttk.Button(bar, text="데이터 받기", command=self.on_update).pack(side="left")
         ttk.Button(bar, text="검색", command=self.on_scan).pack(side="left", padx=4)
         ttk.Button(bar, text="CSV 저장", command=self.on_save_csv).pack(side="left")
@@ -279,19 +282,21 @@ class App(tk.Tk):
 
     # ------------------------------------------------------------------ 동작
     def on_update(self) -> None:
-        market, universe = self.market.get(), self.universe.get()
+        market, universe, flows = self.market.get(), self.universe.get(), self.flows.get()
 
         def work():
             return cache.update(
-                market, universe,
+                market, universe, flows=flows,
                 progress=lambda done, total, sym: self.report(done, total, f"수집 중 {done}/{total} · {sym}"),
             )
 
         def finish(stats):
             self.progress["value"] = self.progress["maximum"]
-            self.status.set(
-                f"수집 완료 · 갱신 {stats['updated']} · 최신 {stats['skipped']} · 실패 {stats['failed']}"
-            )
+            text = (f"수집 완료 · 갱신 {stats['updated']} · 최신 {stats['skipped']}"
+                    f" · 실패 {stats['failed']}")
+            if flows:
+                text += f" · 수급 {stats['flows']}"
+            self.status.set(text)
 
         self.status.set("종목 목록을 받는 중…")
         self.run_worker(work, finish)

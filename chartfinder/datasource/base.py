@@ -14,6 +14,8 @@ from datetime import date
 import pandas as pd
 
 OHLCV_COLUMNS = ["open", "high", "low", "close", "volume"]
+#: 투자자별 순매수 (주식 수). 지원하는 소스만 채운다.
+FLOW_COLUMNS = ["foreign_net", "inst_net", "indi_net"]
 
 
 @dataclass(frozen=True)
@@ -42,6 +44,13 @@ class DataSource(abc.ABC):
     @abc.abstractmethod
     def fetch_ohlcv(self, symbol: str, start: date, end: date) -> pd.DataFrame:
         """종목 하나의 일봉."""
+
+    #: 투자자별 순매수(외국인·기관 수급)를 받을 수 있는 소스인지
+    supports_flows: bool = False
+
+    def fetch_flows(self, symbol: str, start: date, end: date) -> pd.DataFrame:
+        """투자자별 일별 순매수. 지원하지 않는 소스는 빈 프레임."""
+        return pd.DataFrame(columns=FLOW_COLUMNS)
 
     def fetch_many(
         self, symbols: list[str], start: date, end: date
@@ -80,8 +89,8 @@ def normalize_ohlcv(df: pd.DataFrame) -> pd.DataFrame:
     if missing:
         raise ValueError(f"OHLCV 컬럼 누락: {missing} (받은 컬럼: {list(df.columns)})")
 
-    keep = OHLCV_COLUMNS + (["value"] if "value" in df.columns else [])
-    df = df[keep]
+    extra = [c for c in ["value", *FLOW_COLUMNS] if c in df.columns]
+    df = df[OHLCV_COLUMNS + extra]
 
     df.index = pd.to_datetime(df.index).tz_localize(None).normalize()
     df.index.name = "date"
@@ -92,3 +101,37 @@ def normalize_ohlcv(df: pd.DataFrame) -> pd.DataFrame:
     # 거래정지 등으로 종가가 0/결측인 행은 버린다
     df = df[df["close"].notna() & (df["close"] > 0)]
     return df
+
+
+def normalize_flows(df: pd.DataFrame) -> pd.DataFrame:
+    """투자자별 순매수 프레임을 표준 컬럼명으로 정리.
+
+    소스마다 컬럼명이 '외국인합계', '외국인', ('순매수','외국인') 등으로 달라서
+    이름에 포함된 키워드로 찾는다. 단위는 주식 수.
+    """
+    if df is None or len(df) == 0:
+        return pd.DataFrame(columns=FLOW_COLUMNS)
+
+    df = df.copy()
+    if isinstance(df.columns, pd.MultiIndex):
+        # ('순매수', '외국인합계') 같은 형태면 순매수 레벨만 고른다
+        levels = [lvl for lvl in range(df.columns.nlevels)
+                  if any("순매수" in str(v) for v in df.columns.get_level_values(lvl))]
+        if levels:
+            df = df.xs("순매수", axis=1, level=levels[0])
+        else:
+            df.columns = df.columns.get_level_values(-1)
+
+    keywords = {"foreign_net": "외국인", "inst_net": "기관", "indi_net": "개인"}
+    out = pd.DataFrame(index=pd.to_datetime(df.index).tz_localize(None).normalize())
+    for target, keyword in keywords.items():
+        matches = [c for c in df.columns if keyword in str(c)]
+        if matches:
+            # '외국인합계'가 있으면 그걸, 없으면 첫 번째 매칭 컬럼
+            col = next((c for c in matches if "합계" in str(c)), matches[0])
+            out[target] = pd.to_numeric(df[col], errors="coerce").to_numpy()
+
+    if out.empty or not len(out.columns):
+        return pd.DataFrame(columns=FLOW_COLUMNS)
+    out.index.name = "date"
+    return out[~out.index.duplicated(keep="last")].sort_index()

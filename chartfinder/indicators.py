@@ -9,6 +9,7 @@ __all__ = [
     "sma", "ema", "rsi", "macd", "bollinger", "true_range", "atr",
     "rolling_high", "rolling_low", "pct_change_n", "volume_ratio",
     "band_width", "slope_pct", "drawdown_from_high", "trading_value",
+    "dmi", "stochastic_slow",
 ]
 
 
@@ -109,3 +110,46 @@ def trading_value(df: pd.DataFrame, period: int = 20) -> pd.Series:
     """평균 거래대금. 데이터 소스가 value를 주면 그대로, 없으면 종가*거래량."""
     value = df["value"] if "value" in df.columns else df["close"] * df["volume"]
     return value.rolling(period, min_periods=1).mean()
+
+
+def dmi(
+    df: pd.DataFrame, period: int = 14, adx_period: int = 14
+) -> tuple[pd.Series, pd.Series, pd.Series]:
+    """DMI. (+DI, -DI, ADX) — Wilder 평활.
+
+    +DM: 당일 고가가 전일 고가보다 더 많이 오른 폭 (하락폭보다 클 때만)
+    -DM: 당일 저가가 전일 저가보다 더 많이 내린 폭 (상승폭보다 클 때만)
+    """
+    up_move = df["high"].diff()
+    down_move = -df["low"].diff()
+
+    plus_dm = up_move.where((up_move > down_move) & (up_move > 0), 0.0)
+    minus_dm = down_move.where((down_move > up_move) & (down_move > 0), 0.0)
+
+    def wilder(s: pd.Series) -> pd.Series:
+        return s.ewm(alpha=1 / period, adjust=False, min_periods=period).mean()
+
+    atr_value = wilder(true_range(df)).replace(0.0, np.nan)
+    plus_di = 100.0 * wilder(plus_dm) / atr_value
+    minus_di = 100.0 * wilder(minus_dm) / atr_value
+
+    di_sum = (plus_di + minus_di).replace(0.0, np.nan)
+    dx = 100.0 * (plus_di - minus_di).abs() / di_sum
+    adx = dx.ewm(alpha=1 / adx_period, adjust=False, min_periods=adx_period).mean()
+    return plus_di, minus_di, adx
+
+
+def stochastic_slow(
+    df: pd.DataFrame, period: int = 14, smooth_k: int = 3, smooth_d: int = 3
+) -> tuple[pd.Series, pd.Series]:
+    """Slow Stochastic. (%K, %D)
+
+    Fast %K를 smooth_k로 평활한 것이 Slow %K, 그걸 다시 평활한 것이 %D.
+    """
+    low = df["low"].rolling(period, min_periods=period).min()
+    high = df["high"].rolling(period, min_periods=period).max()
+    span = (high - low).replace(0.0, np.nan)
+    fast_k = 100.0 * (df["close"] - low) / span
+    slow_k = fast_k.rolling(smooth_k, min_periods=smooth_k).mean()
+    slow_d = slow_k.rolling(smooth_d, min_periods=smooth_d).mean()
+    return slow_k, slow_d

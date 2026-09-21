@@ -72,6 +72,10 @@ def update_cache(
     universe: Optional[str] = typer.Option(None, "--universe", "-u", help="생략하면 시장별 기본값"),
     years: float = typer.Option(2.0, "--years", "-y", help="받아올 과거 기간(년)"),
     force: bool = typer.Option(False, "--force", help="캐시를 무시하고 전체 재수집"),
+    flows: bool = typer.Option(
+        False, "--flows",
+        help="외국인·기관 순매수도 함께 수집 (한국 시장 전용, 종목당 요청이 1회 늘어 느려짐)",
+    ),
     limit: Optional[int] = typer.Option(None, "--limit", help="앞에서 N종목만 (시험용)"),
 ) -> None:
     """일봉 데이터를 내려받아 로컬 캐시를 갱신한다."""
@@ -91,13 +95,15 @@ def update_cache(
             bar.update(task, completed=done, total=max(total, 1), description=f"수집 중 {symbol}")
 
         stats = cache.update(
-            market, universe, years=years, symbols=symbols, force=force, progress=on_progress
+            market, universe, years=years, symbols=symbols, force=force,
+            flows=flows, progress=on_progress,
         )
         bar.update(task, completed=bar.tasks[0].total)
 
-    console.print(
-        f"[green]완료[/] 갱신 {stats['updated']} · 최신 {stats['skipped']} · 실패 {stats['failed']}"
-    )
+    summary = f"[green]완료[/] 갱신 {stats['updated']} · 최신 {stats['skipped']} · 실패 {stats['failed']}"
+    if flows:
+        summary += f" · 수급 {stats['flows']}"
+    console.print(summary)
 
 
 @app.command("status")

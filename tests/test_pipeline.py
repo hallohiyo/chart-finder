@@ -99,3 +99,37 @@ def test_universes_are_declared_per_market():
 def test_demo_source_rejects_unknown_universe():
     with pytest.raises(ValueError):
         get_source("demo").list_tickers("sp500")
+
+
+def test_demo_cache_carries_flow_columns(demo_cache):
+    df = cache.load("demo", demo_cache[0].symbol)
+    assert {"foreign_net", "inst_net"} <= set(df.columns)
+
+
+def test_attach_flows_preserves_values_outside_fetched_range(demo_cache):
+    """증분 갱신이 예전 수급 값을 지우지 않아야 한다."""
+    import pandas as pd
+
+    symbol = demo_cache[0].symbol
+    df = cache.load("demo", symbol)
+    original_first = float(df["foreign_net"].iloc[0])
+
+    class RecentOnly:
+        """최근 5일치 수급만 돌려주는 가짜 소스."""
+
+        def fetch_flows(self, sym, start, end):
+            recent = df.tail(5)
+            return pd.DataFrame({"foreign_net": [999.0] * 5}, index=recent.index)
+
+    updated = cache.attach_flows(RecentOnly(), symbol, df.copy(), date.today(), date.today())
+    assert float(updated["foreign_net"].iloc[0]) == original_first
+    assert float(updated["foreign_net"].iloc[-1]) == 999.0
+
+
+def test_flow_preset_runs_on_demo_data(demo_cache):
+    preset = presets_mod.load("presets/bottom_reversal.yaml")
+    result = screen("demo", preset.conditions, tickers=demo_cache)
+    assert not result.empty
+    assert result["score"].between(0, 1).all()
+    # 수급 조건도 실제로 채점된다 (demo 는 합성 수급을 갖고 있다)
+    assert result["s_foreign_net_buy"].max() > 0

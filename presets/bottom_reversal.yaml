@@ -1,0 +1,78 @@
+name: 바닥권 반등 (수급 포함)
+market: kr
+universe: all
+description: >-
+  과매도 바닥에서 반등을 확인하는 9종 조건 묶음. 외국인·기관 수급이 포함되므로
+  `chartfinder update -m kr --flows` 로 수급까지 받은 캐시가 필요하다 (한국 시장 전용).
+conditions:
+  # 1. 볼린저 — 하단 지지, 이탈 후 밴드 복귀
+  - key: bb_lower_touch
+    weight: 1.0
+    params: {period: 20, mult: 2.0}
+  - key: bb_lower_recovery
+    weight: 1.5
+    params: {period: 20, mult: 2.0, within: 5}
+
+  # 2. RSI — 과매도 후 30선 상향 돌파
+  - key: rsi_oversold
+    weight: 1.0
+    params: {period: 14, threshold: 35.0}
+  - key: rsi_cross_up
+    weight: 1.5
+    params: {period: 14, threshold: 30.0, within: 5}
+
+  # 3. 외국인·기관 수급 — 3일 연속 순매수
+  - key: foreign_net_buy
+    weight: 1.5
+    params: {days: 3}
+  - key: inst_net_buy
+    weight: 1.0
+    params: {days: 3}
+
+  # 4. 수급량 — 5일 누적 순매수 + 거래대금 하한
+  - key: net_buy_volume
+    weight: 1.0
+    params: {days: 5, min_shares: 100000.0, who: both}
+  - key: min_trading_value
+    weight: 1.0
+    params: {period: 20, amount: 1000.0}
+
+  # 5. DMI — +DI 상향 돌파 후 간격 확대
+  - key: dmi_cross_up
+    weight: 1.5
+    params: {period: 14, within: 5}
+  - key: dmi_spread_widening
+    weight: 1.0
+    params: {period: 14, lookback: 3, min_spread: 3.0}
+
+  # 6. Slow Stochastic — 과매도권 골든크로스
+  - key: stoch_oversold
+    weight: 1.0
+    params: {period: 14, smooth_k: 3, smooth_d: 3, threshold: 20.0}
+  - key: stoch_cross_up
+    weight: 1.5
+    params: {period: 14, smooth_k: 3, smooth_d: 3, within: 5, max_level: 40.0}
+
+  # 7. 이동평균 — 5일선 상승 전환, 20일선과 수렴 후 골든크로스
+  - key: ma_turn_up
+    weight: 1.5
+    params: {period: 5, within: 3, confirm: 2}
+  - key: ma_converging
+    weight: 1.0
+    params: {short: 5, long: 20, max_gap: 3.0}
+  - key: golden_cross
+    weight: 1.0
+    params: {short: 5, long: 20, within: 5}
+
+  # 8. MACD — 시그널선 골든크로스
+  - key: macd_cross_up
+    weight: 1.5
+    params: {fast: 12, slow: 26, signal: 9, within: 5}
+
+  # 9. 거래량 — 바닥권에서 증가, 상승 캔들에 동반 증가
+  - key: near_low
+    weight: 1.0
+    params: {period: 252, max_gap: 25.0}
+  - key: up_candle_volume
+    weight: 1.5
+    params: {period: 20, ratio: 1.5, min_gain: 0.0}

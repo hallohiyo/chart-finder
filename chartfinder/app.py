@@ -111,6 +111,10 @@ with st.sidebar:
         years = st.number_input("과거 기간(년)", 1.0, 20.0, 2.0, 0.5)
         limit = st.number_input("종목 수 제한 (0=전체)", 0, 10000, 0, 50)
         force = st.checkbox("전체 재수집", value=False)
+        flows = st.checkbox(
+            "외국인·기관 수급 포함", value=False,
+            help="한국 시장 전용. 종목당 요청이 1회 늘어 수집이 느려집니다.",
+        )
         if st.button("시작", type="primary", use_container_width=True):
             status = st.empty()
             bar = st.progress(0.0)
@@ -124,9 +128,13 @@ with st.sidebar:
                 status.text(f"{done}/{total} · {symbol}")
 
             stats = cache.update(market, universe, years=years, symbols=symbols,
-                                 force=force, progress=on_progress)
+                                 force=force, flows=flows, progress=on_progress)
             bar.progress(1.0)
-            st.success(f"갱신 {stats['updated']} · 최신 {stats['skipped']} · 실패 {stats['failed']}")
+            message = (f"갱신 {stats['updated']} · 최신 {stats['skipped']} "
+                       f"· 실패 {stats['failed']}")
+            if flows:
+                message += f" · 수급 {stats['flows']}"
+            st.success(message)
 
     st.header("결과 옵션")
     top = st.slider("상위 N종목", 5, 200, 30, 5)

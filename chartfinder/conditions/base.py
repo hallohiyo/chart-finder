@@ -48,6 +48,16 @@ class Ctx:
     def bars(self) -> int:
         return len(self.df)
 
+    def flow(self, name: str) -> pd.Series | None:
+        """투자자별 순매수 컬럼 (foreign_net / inst_net / indi_net).
+
+        수급을 받지 않은 캐시나 지원하지 않는 시장에서는 None.
+        """
+        if name not in self.df.columns:
+            return None
+        series = pd.to_numeric(self.df[name], errors="coerce")
+        return None if series.dropna().empty else series
+
     # ---------------------------------------------------------------- 지표 (메모이즈)
     def _memoized(self, key: tuple, fn: Callable[[], Any]) -> Any:
         if key not in self._memo:
@@ -76,6 +86,17 @@ class Ctx:
     def band_width(self, period: int = 20, mult: float = 2.0) -> pd.Series:
         return self._memoized(
             ("bw", period, mult), lambda: ind.band_width(self.close, period, mult)
+        )
+
+    def dmi(self, period: int = 14, adx_period: int = 14):
+        return self._memoized(
+            ("dmi", period, adx_period), lambda: ind.dmi(self.df, period, adx_period)
+        )
+
+    def stochastic(self, period: int = 14, smooth_k: int = 3, smooth_d: int = 3):
+        return self._memoized(
+            ("stoch", period, smooth_k, smooth_d),
+            lambda: ind.stochastic_slow(self.df, period, smooth_k, smooth_d),
         )
 
     def atr(self, period: int = 14) -> pd.Series:
