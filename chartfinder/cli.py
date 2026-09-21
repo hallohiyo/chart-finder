@@ -208,7 +208,27 @@ def doctor(
         if len(naver):
             console.print(f"[dim]{naver.tail(3)}[/]")
         else:
-            console.print("[yellow]   네이버 응답도 비어 있습니다 (표 구조 변경 가능)[/]")
+            console.print("[yellow]   네이버 응답도 비어 있습니다[/]")
+
+    if naver is None or naver.empty:
+        def naver_diagnose():
+            from .datasource import naver_flows
+
+            return naver_flows.diagnose(symbol)
+
+        info = step("네이버 응답 진단", naver_diagnose)
+        if info:
+            for key in ("status", "bytes", "declared_encoding", "decoded_with",
+                        "has_marker", "parsed_rows"):
+                if key in info:
+                    console.print(f"   {key}: {info[key]}")
+            tables = info.get("tables")
+            if isinstance(tables, list):
+                for i, cols in enumerate(tables[:5]):
+                    console.print(f"   표{i}: {cols[:9]}")
+            else:
+                console.print(f"   표 파싱: {tables}")
+            console.print(f"[dim]   본문: {str(info.get('snippet'))[:200]}[/]")
 
     flows = step(f"수급 최종 ({symbol})", lambda: source.fetch_flows(symbol, start, end))
     if flows is not None and not flows.empty:

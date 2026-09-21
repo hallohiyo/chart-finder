@@ -77,12 +77,43 @@ def test_fetch_trims_rows_outside_the_range(html):
     assert flows.index.max().date() == date(2026, 9, 21)
 
 
-def test_fetch_returns_empty_when_every_page_fails():
+def test_fetch_raises_when_the_first_page_fails():
+    """첫 페이지 실패를 빈 결과로 감추면 원인을 알 수 없다."""
     def broken(symbol, page):
         raise ConnectionError("차단")
 
-    assert naver_flows.fetch("005930", date(2026, 1, 1), date(2026, 9, 21),
-                             page_fetcher=broken).empty
+    with pytest.raises(ConnectionError):
+        naver_flows.fetch("005930", date(2026, 1, 1), date(2026, 9, 21), page_fetcher=broken)
+
+
+def test_fetch_keeps_what_it_got_when_a_later_page_fails(html):
+    def flaky(symbol, page):
+        if page == 1:
+            return html
+        raise ConnectionError("차단")
+
+    flows = naver_flows.fetch(
+        "005930", date(2000, 1, 1), date(2026, 9, 21), page_fetcher=flaky
+    )
+    assert len(flows) == 3
+
+
+def test_decode_picks_the_encoding_that_yields_korean_headers():
+    """인코딩을 잘못 고르면 머리글이 깨져 표를 못 찾는다."""
+    text = "<table><tr><th>날짜</th></tr></table>"
+    euc_text, euc_used = naver_flows.decode(text.encode("euc-kr"))
+    assert "날짜" in euc_text
+    assert euc_used in ("euc-kr", "cp949")
+
+    utf_text, utf_used = naver_flows.decode(text.encode("utf-8"))
+    assert "날짜" in utf_text
+    assert utf_used == "utf-8"
+
+
+def test_decode_falls_back_without_raising():
+    text, used = naver_flows.decode(b"\xff\xfe\x00binary")
+    assert isinstance(text, str)
+    assert used
 
 
 def test_fetch_stops_on_empty_page(html):
