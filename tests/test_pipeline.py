@@ -85,3 +85,17 @@ def test_preset_round_trip(tmp_path):
     assert loaded.name == "테스트"
     assert loaded.conditions[0].params == {"threshold": 25}
     assert loaded.conditions[0].weight == 2.0
+
+
+def test_universes_are_declared_per_market():
+    from chartfinder.datasource import MARKETS, default_universe, universes
+
+    for market in MARKETS:
+        allowed = universes(market)
+        assert allowed, market
+        assert default_universe(market) in allowed
+
+
+def test_demo_source_rejects_unknown_universe():
+    with pytest.raises(ValueError):
+        get_source("demo").list_tickers("sp500")

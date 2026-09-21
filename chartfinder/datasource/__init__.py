@@ -15,17 +15,36 @@ MARKETS = tuple(_SOURCES)
 _cache: dict[str, DataSource] = {}
 
 
-def get_source(market: str) -> DataSource:
-    """시장 코드로 데이터 소스를 가져온다 (프로세스 내 재사용)."""
+def get_source_class(market: str) -> type[DataSource]:
+    """데이터 소스 클래스만 가져온다 (인스턴스를 만들지 않아 네트워크 의존이 없다)."""
     market = market.lower()
     if market not in _SOURCES:
         raise ValueError(f"지원하지 않는 시장: {market} (가능: {MARKETS})")
-    if market not in _cache:
-        import importlib
+    import importlib
 
-        module_path, cls_name = _SOURCES[market].split(":")
-        _cache[market] = getattr(importlib.import_module(module_path), cls_name)()
+    module_path, cls_name = _SOURCES[market].split(":")
+    return getattr(importlib.import_module(module_path), cls_name)
+
+
+def get_source(market: str) -> DataSource:
+    """시장 코드로 데이터 소스를 가져온다 (프로세스 내 재사용)."""
+    market = market.lower()
+    if market not in _cache:
+        _cache[market] = get_source_class(market)()
     return _cache[market]
 
 
-__all__ = ["DataSource", "Ticker", "normalize_ohlcv", "get_source", "MARKETS"]
+def universes(market: str) -> tuple[str, ...]:
+    """해당 시장이 지원하는 유니버스 목록."""
+    return get_source_class(market).universes
+
+
+def default_universe(market: str) -> str:
+    """시장별 기본 유니버스 (각 소스가 선언한 첫 번째 항목)."""
+    return universes(market)[0]
+
+
+__all__ = [
+    "DataSource", "Ticker", "normalize_ohlcv", "get_source", "get_source_class",
+    "universes", "default_universe", "MARKETS",
+]

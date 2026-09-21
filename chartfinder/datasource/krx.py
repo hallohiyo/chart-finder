@@ -11,7 +11,7 @@ from .base import DataSource, Ticker, normalize_ohlcv
 
 class KrxSource(DataSource):
     market = "kr"
-    universes = ("kospi", "kosdaq", "all")
+    universes = ("all", "kospi", "kosdaq")
 
     def __init__(self) -> None:
         import FinanceDataReader as fdr  # 지연 import: 네트워크 의존 모듈

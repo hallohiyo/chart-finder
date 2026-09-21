@@ -19,15 +19,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from chartfinder import cache, indicators as ind, presets as presets_mod
 from chartfinder.conditions import by_category, get as get_condition
-from chartfinder.datasource import MARKETS
+from chartfinder.datasource import MARKETS, universes
 from chartfinder.presets import Preset
 from chartfinder.screener import ConditionSpec, screen
 
-UNIVERSES = {
-    "kr": ["all", "kospi", "kosdaq"],
-    "us": ["sp500", "nasdaq", "nyse", "amex", "all"],
-    "demo": ["all"],
-}
 PRESET_DIR = Path("presets")
 
 st.set_page_config(page_title="차트 조건 검색기", page_icon="📈", layout="wide")
@@ -148,7 +143,7 @@ with st.sidebar:
     st.header("대상")
     market = st.selectbox("시장", MARKETS, index=0,
                           format_func=lambda m: {"kr": "한국", "us": "미국", "demo": "데모(오프라인)"}[m])
-    universe = st.selectbox("유니버스", UNIVERSES[market])
+    universe = st.selectbox("유니버스", universes(market))
 
     info = cache.stats(market)
     st.caption(f"캐시 {info['symbols']}종목 · 최근 {info['latest'] or '-'} · {info['size_mb']}MB")

@@ -32,6 +32,8 @@ class DemoSource(DataSource):
         self.count = count
 
     def list_tickers(self, universe: str = "all") -> list[Ticker]:
+        if universe.lower() not in self.universes:
+            raise ValueError(f"지원하지 않는 유니버스: {universe} (가능: {self.universes})")
         tickers = []
         for i in range(self.count):
             profile = _PROFILES[i % len(_PROFILES)][0]

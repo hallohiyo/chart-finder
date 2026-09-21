@@ -12,7 +12,7 @@ from rich.table import Table
 
 from . import cache, presets as presets_mod
 from .conditions import all_conditions, by_category, get as get_condition
-from .datasource import MARKETS
+from .datasource import MARKETS, default_universe, universes
 from .screener import ConditionSpec, screen
 
 app = typer.Typer(
@@ -20,6 +20,17 @@ app = typer.Typer(
     help="차트 조건에 가장 근접한 종목을 찾아주는 스크리너 (한국/미국 시장)",
 )
 console = Console()
+
+
+def _resolve_universe(market: str, universe: str | None) -> str:
+    """유니버스를 시장별 기본값으로 채우고, 잘못된 값이면 바로 알려준다."""
+    allowed = universes(market)
+    if universe is None:
+        return default_universe(market)
+    if universe.lower() not in allowed:
+        console.print(f"[red]{market} 시장에 없는 유니버스: {universe}[/] (가능: {', '.join(allowed)})")
+        raise typer.Exit(code=1)
+    return universe.lower()
 
 
 @app.command("conditions")
@@ -58,12 +69,13 @@ def list_conditions(
 @app.command("update")
 def update_cache(
     market: str = typer.Option("kr", "--market", "-m", help=f"시장 {MARKETS}"),
-    universe: str = typer.Option("all", "--universe", "-u", help="kr: kospi/kosdaq/all, us: sp500/nasdaq/nyse/all"),
+    universe: Optional[str] = typer.Option(None, "--universe", "-u", help="생략하면 시장별 기본값"),
     years: float = typer.Option(2.0, "--years", "-y", help="받아올 과거 기간(년)"),
     force: bool = typer.Option(False, "--force", help="캐시를 무시하고 전체 재수집"),
     limit: Optional[int] = typer.Option(None, "--limit", help="앞에서 N종목만 (시험용)"),
 ) -> None:
     """일봉 데이터를 내려받아 로컬 캐시를 갱신한다."""
+    universe = _resolve_universe(market, universe)
     tickers = cache.get_tickers(market, universe, refresh=force)
     symbols = [t.symbol for t in tickers][:limit] if limit else [t.symbol for t in tickers]
     console.print(f"[bold]{market.upper()}/{universe}[/] 종목 {len(symbols)}개 갱신 시작")
@@ -132,7 +144,7 @@ def scan(
         raise typer.Exit(code=1)
 
     market = market or "kr"
-    universe = universe or ("all" if market == "kr" else "sp500")
+    universe = _resolve_universe(market, universe)
 
     tickers = cache.get_tickers(market, universe)
     console.print(
