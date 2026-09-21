@@ -11,7 +11,6 @@ runner = CliRunner()
 @pytest.fixture
 def demo_home(tmp_path, monkeypatch):
     monkeypatch.setenv("CHARTFINDER_HOME", str(tmp_path))
-    monkeypatch.setenv("COLUMNS", "100")
     result = runner.invoke(app, ["update", "-m", "demo", "--limit", "8", "-y", "1"])
     assert result.exit_code == 0, result.output
     return tmp_path
@@ -35,14 +34,21 @@ def test_unknown_condition_fails_cleanly():
     assert result.exit_code != 0
 
 
+def _header_columns(output: str) -> int:
+    """결과 표 머리글의 열 개수. 라벨은 폭에 따라 잘리므로 구조로 센다."""
+    # "60종목 · 조건 ..." 같은 요약 줄이 아니라 표 머리글 줄을 찾는다
+    header = next(line for line in output.splitlines() if "종목" in line and "┃" in line)
+    return header.count("┃") - 1
+
+
 def test_scan_renders_inline_scores_for_few_conditions(demo_home):
     result = runner.invoke(
         app, ["scan", "-m", "demo", "-c", "above_ma", "-c", "rsi_oversold",
               "--top", "3", "--detail"]
     )
     assert result.exit_code == 0, result.output
-    assert "이동평균 위" in result.output  # 조건 라벨이 열 머리글로
-    assert "충족" in result.output
+    # 기본 7열 + 조건 2열
+    assert _header_columns(result.output) == 9
 
 
 def test_scan_switches_to_breakdown_for_many_conditions(demo_home):
@@ -54,11 +60,8 @@ def test_scan_switches_to_breakdown_for_many_conditions(demo_home):
     assert result.exit_code == 0, result.output
     assert "충족" in result.output
     assert "근접" in result.output or "미달" in result.output
-    # 표 머리글에 17개 조건이 들어가면 읽을 수 없게 된다
-    header = result.output.splitlines()[result.output.splitlines().index(
-        next(line for line in result.output.splitlines() if "종목" in line)
-    )]
-    assert header.count("│") < 12
+    # 표에는 기본 7열만 남아야 한다 (17개를 밀어넣으면 전부 뭉개진다)
+    assert _header_columns(result.output) == 7
 
 
 def test_scan_without_conditions_fails(demo_home):

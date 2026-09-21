@@ -1,3 +1,10 @@
+import os
+
+# rich 는 import 시점에 콘솔 폭을 잡는다. 터미널이 좁으면 한글 라벨이 잘려
+# CLI 출력 검사가 실행 환경에 따라 달라지므로, 테스트에서는 폭을 고정한다.
+# (테스트 모듈보다 conftest 가 먼저 import 된다)
+os.environ["COLUMNS"] = "200"
+
 import numpy as np
 import pandas as pd
 import pytest
