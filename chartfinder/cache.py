@@ -142,6 +142,7 @@ def update(
 
     flows=True면 외국인·기관 순매수도 함께 받는다 (지원하는 시장만, 종목당 1회 요청).
     {'updated': n, 'skipped': n, 'failed': n, 'flows': n} 반환.
+    수급 수집이 실패하면 첫 실패 사유가 'flow_error' 에 담긴다.
     """
     source = get_source(market)
     if symbols is None:
@@ -150,7 +151,7 @@ def update(
     today = date.today()
     full_start = today - timedelta(days=int(365.25 * years) + 40)
 
-    stats = {"updated": 0, "skipped": 0, "failed": 0, "flows": 0}
+    stats: dict[str, object] = {"updated": 0, "skipped": 0, "failed": 0, "flows": 0}
 
     # 어디까지 받아야 하는지에 따라 종목을 묶는다 (배치 다운로드용)
     buckets: dict[date, list[str]] = {}
@@ -185,11 +186,12 @@ def update(
                 else:
                     combined = merge(None if force else load(market, sym), df)
                     if flows and getattr(source, "supports_flows", False):
+                        # 수급 실패가 시세 저장을 막지는 않되, 이유는 남긴다
                         try:
                             combined = attach_flows(source, sym, combined, start, today)
                             stats["flows"] += 1
-                        except Exception:
-                            pass  # 수급 실패가 시세 저장을 막지는 않는다
+                        except Exception as exc:
+                            stats.setdefault("flow_error", f"{type(exc).__name__}: {exc}")
                     save(market, sym, combined)
                     stats["updated"] += 1
                 done += 1

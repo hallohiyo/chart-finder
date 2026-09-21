@@ -110,6 +110,9 @@ chartfinder scan -m demo -c ma_alignment -c volume_surge --top 10 --detail
 chartfinder update -m kr -u all --flows
 ```
 
+수급 수집에는 `pykrx` 가 필요하다 (의존성에 포함돼 있다). 0건으로 끝나면
+실패 사유가 함께 출력된다.
+
 UI에서는 '수급 포함' 체크박스. 받지 않은 상태로 수급 조건을 쓰면 점수가 0으로 나온다.
 
 ### 조건 추가하기

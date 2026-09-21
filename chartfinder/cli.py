@@ -105,6 +105,10 @@ def update_cache(
         summary += f" · 수급 {stats['flows']}"
     console.print(summary)
 
+    if flows and not stats["flows"]:
+        reason = stats.get("flow_error", "수급을 지원하지 않는 시장일 수 있습니다.")
+        console.print(f"[yellow]수급을 받지 못했습니다:[/] {reason}")
+
 
 @app.command("status")
 def show_status(

@@ -64,7 +64,12 @@ class KrxSource(DataSource):
     def fetch_flows(self, symbol: str, start: date, end: date) -> pd.DataFrame:
         """외국인·기관·개인 일별 순매수 (주식 수). pykrx 사용."""
         if self._pykrx is None:
-            from pykrx import stock
+            try:
+                from pykrx import stock
+            except ImportError as exc:  # 의존성 누락을 조용히 넘기지 않는다
+                raise RuntimeError(
+                    "수급 데이터에는 pykrx 가 필요합니다. `pip install pykrx` 로 설치하세요."
+                ) from exc
 
             self._pykrx = stock
 

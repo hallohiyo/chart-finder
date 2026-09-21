@@ -133,3 +133,32 @@ def test_flow_preset_runs_on_demo_data(demo_cache):
     assert result["score"].between(0, 1).all()
     # 수급 조건도 실제로 채점된다 (demo 는 합성 수급을 갖고 있다)
     assert result["s_foreign_net_buy"].max() > 0
+
+
+def test_update_reports_why_flows_failed(tmp_path, monkeypatch):
+    """수급 실패를 조용히 삼키지 말고 이유를 올려보내야 한다."""
+    monkeypatch.setenv("CHARTFINDER_HOME", str(tmp_path))
+
+    from chartfinder.datasource import get_source
+
+    source = get_source("demo")
+    monkeypatch.setattr(
+        source, "fetch_flows",
+        lambda *a, **k: (_ for _ in ()).throw(RuntimeError("pykrx 가 필요합니다")),
+        raising=False,
+    )
+    symbols = [t.symbol for t in source.list_tickers()][:2]
+    stats = cache.update("demo", symbols=symbols, years=1, flows=True)
+
+    assert stats["updated"] == 2       # 시세는 정상 저장
+    assert stats["flows"] == 0
+    assert "pykrx" in str(stats["flow_error"])
+
+
+def test_update_without_flows_reports_no_error(tmp_path, monkeypatch):
+    monkeypatch.setenv("CHARTFINDER_HOME", str(tmp_path))
+    from chartfinder.datasource import get_source
+
+    symbols = [t.symbol for t in get_source("demo").list_tickers()][:2]
+    stats = cache.update("demo", symbols=symbols, years=1, flows=False)
+    assert "flow_error" not in stats
