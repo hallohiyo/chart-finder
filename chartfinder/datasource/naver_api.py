@@ -28,6 +28,10 @@ BASES = ("https://m.stock.naver.com/api/stock", "https://api.stock.naver.com/sto
 TREND_PATHS = ("{code}/trend", "{code}/investor", "{code}/foreignInstitution")
 #: 연간 재무 경로 후보
 FINANCE_PATHS = ("{code}/finance/annual", "{code}/finance/annual/summary", "{code}/finance")
+#: 한 번에 요청할 수 있는 최대 건수. 크게 넣으면 404 가 돌아온다.
+PAGE_SIZE = 20
+#: 수급을 받을 때 넘길 최대 페이지 수
+MAX_PAGES = 10
 
 #: 응답 키를 표준 이름으로 잇는 키워드 (소문자 비교)
 FLOW_KEYS = {
@@ -112,19 +116,22 @@ def _number(value: Any) -> float | None:
         return None
 
 
-def fetch_flows(symbol: str, start: date, end: date) -> pd.DataFrame:
-    """외국인·기관 일별 순매수 (주식 수)."""
-    _, data = try_paths(symbol, TREND_PATHS, {"pageSize": 100, "page": 1})
-    records = find_records(data)
-    if not records:
-        return pd.DataFrame()
+def parse_date(value: Any) -> pd.Timestamp:
+    """'20260923' 과 '2026-09-23' 을 모두 받는다."""
+    text = str(value).strip()
+    if len(text) == 8 and text.isdigit():
+        return pd.to_datetime(text, format="%Y%m%d", errors="coerce")
+    return pd.to_datetime(text, errors="coerce")
 
+
+def parse_trend(records: list[dict]) -> pd.DataFrame:
+    """매매동향 레코드를 (date × foreign_net/inst_net/indi_net) 로."""
     rows = []
     for record in records:
-        day = _pick(record, DATE_KEYS)
-        if day is None:
+        day = parse_date(_pick(record, DATE_KEYS))
+        if pd.isna(day):
             continue
-        row = {"date": pd.to_datetime(str(day), errors="coerce", format="mixed")}
+        row = {"date": day}
         for target, keywords in FLOW_KEYS.items():
             value = _number(_pick(record, keywords))
             if value is not None:
@@ -134,35 +141,83 @@ def fetch_flows(symbol: str, start: date, end: date) -> pd.DataFrame:
 
     if not rows:
         return pd.DataFrame()
-    df = pd.DataFrame(rows).dropna(subset=["date"]).set_index("date")
+    df = pd.DataFrame(rows).set_index("date")
     df.index = df.index.normalize()
-    df = df[~df.index.duplicated(keep="last")].sort_index()
-    return df.loc[str(start) : str(end)]
+    return df[~df.index.duplicated(keep="last")].sort_index()
 
 
-def fetch_fundamentals(symbol: str) -> pd.DataFrame:
-    """연간 재무 지표."""
-    from ..fundamentals import normalize
+def fetch_flows(symbol: str, start: date, end: date, max_pages: int = MAX_PAGES) -> pd.DataFrame:
+    """외국인·기관 일별 순매수 (주식 수).
 
-    _, data = try_paths(symbol, FINANCE_PATHS)
-    records = find_records(data)
-    if not records:
+    한 페이지가 PAGE_SIZE 건이라 시작일을 덮을 때까지 페이지를 넘긴다.
+    """
+    url, data = try_paths(symbol, TREND_PATHS, {"pageSize": PAGE_SIZE, "page": 1})
+    frames = [parse_trend(find_records(data))]
+
+    for page in range(2, max_pages + 1):
+        if frames[-1].empty or frames[-1].index[0].date() <= start:
+            break
+        try:
+            more = parse_trend(find_records(get_json(url, {"pageSize": PAGE_SIZE, "page": page})))
+        except Exception:
+            break
+        if more.empty:
+            break
+        frames.append(more)
+
+    merged = pd.concat([f for f in frames if not f.empty]) if any(
+        not f.empty for f in frames
+    ) else pd.DataFrame()
+    if merged.empty:
+        return merged
+    merged = merged[~merged.index.duplicated(keep="last")].sort_index()
+    return merged.loc[str(start) : str(end)]
+
+
+def parse_finance(records: list[dict], include_estimates: bool = False) -> pd.DataFrame:
+    """재무 응답을 (기간 × 항목) 프레임으로.
+
+    응답은 항목이 행이고 기간이 열인 형태다:
+        {"title": "매출액", "columns": {"202412": {"value": "3,008,709"}, ...}}
+    아직 오지 않은 결산기(예: 오늘이 2026-09 인데 202612)는 컨센서스이므로 뺀다.
+    """
+    table: dict[str, dict[str, float]] = {}
+    for record in records:
+        title = record.get("title")
+        columns = record.get("columns")
+        if not title or not isinstance(columns, dict):
+            continue
+        for period, cell in columns.items():
+            value = _number(cell.get("value") if isinstance(cell, dict) else cell)
+            if value is None:
+                continue
+            if not include_estimates and _is_future_period(period):
+                continue
+            table.setdefault(str(period), {})[str(title)] = value
+
+    if not table:
         return pd.DataFrame()
 
-    rows = {}
-    for record in records:
-        period = _pick(record, PERIOD_KEYS)
-        if period is None:
-            continue
-        row = {}
-        for target, keywords in FINANCE_KEYS.items():
-            value = _number(_pick(record, keywords))
-            if value is not None:
-                row[target] = value
-        if row:
-            rows[str(period)] = row
+    from ..fundamentals import normalize
 
-    return normalize(pd.DataFrame(rows).T) if rows else pd.DataFrame()
+    return normalize(pd.DataFrame(table).T)
+
+
+def _is_future_period(period: Any) -> bool:
+    """'202612' 처럼 아직 끝나지 않은 결산기인지."""
+    text = str(period).strip()
+    if len(text) < 6 or not text[:6].isdigit():
+        return False
+    year, month = int(text[:4]), int(text[4:6])
+    today = date.today()
+    return (year, month) >= (today.year, today.month)
+
+
+def fetch_fundamentals(symbol: str, include_estimates: bool = False) -> pd.DataFrame:
+    """연간 재무 지표."""
+    _, data = try_paths(symbol, FINANCE_PATHS)
+    records = find_records(data)
+    return parse_finance(records, include_estimates) if records else pd.DataFrame()
 
 
 def probe(symbol: str) -> dict:
@@ -173,7 +228,7 @@ def probe(symbol: str) -> dict:
             for path in paths:
                 url = f"{base}/{path.format(code=symbol)}"
                 try:
-                    data = get_json(url, {"pageSize": 5, "page": 1})
+                    data = get_json(url, {"pageSize": 5, "page": 1})  # 크게 넣으면 404
                 except Exception as exc:
                     report[url] = f"{type(exc).__name__}: {str(exc)[:80]}"
                     continue
