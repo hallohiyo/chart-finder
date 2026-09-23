@@ -1,7 +1,7 @@
-name: 박스권을 뚫고 올라가는 종목
+name: 박스권 돌파 — 거래량 동반 상향 이탈
 market: us
 universe: sp500
-description: 한동안 옆으로 기던 주식이 거래량과 함께 위로 뚫은 경우.
+description: 60일 박스권을 평균 2배 거래량과 함께 뚫은 종목.
 requires: []
 order: 70
 conditions:

@@ -25,7 +25,7 @@ def test_every_preset_is_offered_as_a_choice(app):
     from chartfinder.presets import list_presets
 
     assert len(app.presets) == len(list_presets("presets"))
-    assert app.chosen.get()  # 기본 선택이 있어야 바로 누를 수 있다
+    assert app.selected  # 기본으로 하나는 체크돼 있어야 바로 누를 수 있다
 
 
 def test_presets_are_listed_easiest_first(app):
@@ -33,11 +33,50 @@ def test_presets_are_listed_easiest_first(app):
     assert orders == sorted(orders)
 
 
-def test_preset_names_avoid_jargon(app):
-    """초보자 화면이므로 지표 이름이 그대로 노출되면 안 된다."""
-    jargon = ("RSI", "MACD", "DMI", "볼린저", "스토캐스틱", "이동평균")
+def test_every_preset_explains_itself(app):
+    """이름만으로 안 되면 설명과 지표 갈래로 보완한다."""
+    from chartfinder.presets import indicator_tags
+
     for preset in app.presets.values():
-        assert not any(word in preset.name for word in jargon), preset.name
+        assert preset.description.strip(), preset.name
+        assert indicator_tags(preset), preset.name
+
+
+def test_strategies_can_be_combined(app):
+    """여러 전략을 고르면 조건이 합쳐진다."""
+    names = list(app.checked)
+    for name in names:
+        app.checked[name].set(False)
+
+    app.checked[names[0]].set(True)
+    single = len(app.conditions)
+
+    app.checked[names[1]].set(True)
+    combined = len(app.conditions)
+
+    assert len(app.selected) == 2
+    assert combined > single
+
+
+def test_overlapping_conditions_are_merged_once_with_added_weight(app):
+    """같은 조건이 두 전략에 있으면 하나로 합치고 가중치를 더한다."""
+    from chartfinder.presets import Preset, merge
+    from chartfinder.screener import ConditionSpec
+
+    first = Preset(name="a", conditions=[ConditionSpec("rsi_oversold", {}, 1.0)])
+    second = Preset(name="b", conditions=[ConditionSpec("rsi_oversold", {}, 1.5),
+                                          ConditionSpec("above_ma", {}, 1.0)])
+    merged = merge([first, second])
+    assert len(merged) == 2
+    assert {spec.key: spec.weight for spec in merged}["rsi_oversold"] == 2.5
+
+
+def test_choosing_nothing_is_reported(app):
+    for var in app.checked.values():
+        var.set(False)
+    app._refresh_choice()
+    assert "하나 이상" in app.choice_summary.cget("text")
+    assert app.conditions == []
 
 
 def test_market_switch_updates_the_data_notice(app):
@@ -50,8 +89,7 @@ def test_missing_data_is_detected_for_the_chosen_strategy(app, monkeypatch):
     from chartfinder import cache
 
     monkeypatch.setattr(cache, "stats", lambda market: {"symbols": 0, "latest": None, "size_mb": 0})
-    preset = next(iter(app.presets.values()))
-    assert "시세" in app._missing_data(preset)
+    assert "시세" in app._missing_data(app.selected)
 
 
 def test_flow_and_fundamental_needs_are_reported(app, monkeypatch):
@@ -62,8 +100,9 @@ def test_flow_and_fundamental_needs_are_reported(app, monkeypatch):
     monkeypatch.setattr(cache, "has_flows", lambda market, sample=5: False)
     monkeypatch.setattr(cache, "has_fundamentals", lambda market: False)
 
-    needs_both = Preset(name="x", requires=["flows", "fundamentals"])
-    missing = app._missing_data(needs_both)
+    needs_flows = Preset(name="x", requires=["flows"])
+    needs_fundamentals = Preset(name="y", requires=["fundamentals"])
+    missing = app._missing_data([needs_flows, needs_fundamentals])
     assert "외국인·기관" in missing
     assert "실적" in missing
 

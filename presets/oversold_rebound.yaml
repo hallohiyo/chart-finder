@@ -1,7 +1,7 @@
-name: 많이 빠진 뒤 반등 신호
+name: 과매도 반등 — 많이 빠진 뒤 돌아설 자리
 market: kr
 universe: all
-description: 크게 하락한 뒤 바닥을 다지는 신호가 나온 주식.
+description: RSI 30 이하 + 볼린저 하단 이탈, 고점 대비 25~60% 조정 구간.
 requires: []
 order: 20
 conditions:

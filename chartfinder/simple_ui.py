@@ -31,15 +31,15 @@ class App(tk.Tk):
     def __init__(self) -> None:
         super().__init__()
         self.title("주식 찾기")
-        self.geometry("1000x760")
-        self.minsize(860, 640)
+        self.geometry("1040x920")
+        self.minsize(900, 700)
 
         self.queue: queue.Queue = queue.Queue()
         self.busy = False
         self.result = None
         self.market = tk.StringVar(value="kr")
-        self.chosen = tk.StringVar()
         self.presets: dict[str, presets_mod.Preset] = {}
+        self.checked: dict[str, tk.BooleanVar] = {}
 
         self._build()
         self._refresh_data_status()
@@ -81,7 +81,10 @@ class App(tk.Tk):
         self.data_status.pack(anchor="w", pady=(8, 0))
 
     def _build_strategies(self, parent: ttk.Frame) -> None:
-        box = ttk.LabelFrame(parent, text=" 2단계 · 어떤 종목을 찾을까요? ", padding=10)
+        box = ttk.LabelFrame(
+            parent, text=" 2단계 · 어떤 종목을 찾을까요?  (여러 개 고르면 조건을 합칩니다) ",
+            padding=10,
+        )
         box.pack(fill="x", pady=6)
 
         loaded = presets_mod.load_all(PRESET_DIR)
@@ -91,21 +94,31 @@ class App(tk.Tk):
 
         for index, (path, preset) in enumerate(loaded):
             self.presets[path.name] = preset
-            if index == 0:
-                self.chosen.set(path.name)
+            variable = tk.BooleanVar(value=index == 0)
+            self.checked[path.name] = variable
 
             row = ttk.Frame(box)
-            row.pack(fill="x", pady=2)
-            ttk.Radiobutton(
-                row, text=preset.name, value=path.name, variable=self.chosen,
-            ).pack(side="left")
+            row.pack(fill="x", pady=1)
+            ttk.Checkbutton(
+                row, text=preset.name, variable=variable, command=self._refresh_choice,
+            ).pack(anchor="w")
 
             note = preset.description
             if preset.needs_flows:
-                note += "   [외국인·기관 데이터 필요]"
+                note += "  [수급 데이터 필요]"
             if preset.needs_fundamentals:
-                note += "   [실적 데이터 필요]"
-            ttk.Label(row, text=note, foreground="#666").pack(side="left", padx=(10, 0))
+                note += "  [실적 데이터 필요]"
+            detail = ttk.Frame(row)
+            detail.pack(fill="x", padx=(24, 0))
+            ttk.Label(detail, text=note, foreground="#555").pack(side="left")
+            ttk.Label(
+                detail, text="  · " + " · ".join(presets_mod.indicator_tags(preset)),
+                foreground="#999",
+            ).pack(side="left")
+
+        self.choice_summary = ttk.Label(box, text="", foreground="#333")
+        self.choice_summary.pack(anchor="w", pady=(8, 0))
+        self._refresh_choice()
 
     def _build_action(self, parent: ttk.Frame) -> None:
         row = ttk.Frame(parent)
@@ -128,7 +141,7 @@ class App(tk.Tk):
         table = ttk.Frame(box)
         table.pack(fill="both", expand=True)
 
-        self.tree = ttk.Treeview(table, columns=COLUMNS, show="headings", height=14)
+        self.tree = ttk.Treeview(table, columns=COLUMNS, show="headings", height=12)
         scroll = ttk.Scrollbar(table, orient="vertical", command=self.tree.yview)
         self.tree.configure(yscrollcommand=scroll.set)
 
@@ -158,8 +171,25 @@ class App(tk.Tk):
 
     # ------------------------------------------------------------------ 상태
     @property
-    def preset(self) -> presets_mod.Preset | None:
-        return self.presets.get(self.chosen.get())
+    def selected(self) -> list[presets_mod.Preset]:
+        """체크된 전략들 (화면에 보이는 순서대로)."""
+        return [self.presets[name] for name, var in self.checked.items() if var.get()]
+
+    @property
+    def conditions(self) -> list:
+        """고른 전략들의 조건을 합친 것."""
+        return presets_mod.merge(self.selected)
+
+    def _refresh_choice(self) -> None:
+        chosen = self.selected
+        if not chosen:
+            self.choice_summary.config(text="전략을 하나 이상 골라주세요.", foreground="#b00")
+            return
+        names = ", ".join(preset.name.split(" — ")[0] for preset in chosen)
+        self.choice_summary.config(
+            text=f"고른 전략 {len(chosen)}개 ({names}) · 합친 조건 {len(self.conditions)}개",
+            foreground="#333",
+        )
 
     def _refresh_data_status(self) -> None:
         market = self.market.get()
@@ -181,15 +211,15 @@ class App(tk.Tk):
             foreground="#555",
         )
 
-    def _missing_data(self, preset: presets_mod.Preset) -> list[str]:
-        """고른 전략에 필요한데 아직 없는 데이터."""
+    def _missing_data(self, presets: list[presets_mod.Preset]) -> list[str]:
+        """고른 전략들에 필요한데 아직 없는 데이터."""
         market = self.market.get()
         missing = []
         if not cache.stats(market)["symbols"]:
             missing.append("시세")
-        if preset.needs_flows and not cache.has_flows(market):
+        if any(p.needs_flows for p in presets) and not cache.has_flows(market):
             missing.append("외국인·기관")
-        if preset.needs_fundamentals and not cache.has_fundamentals(market):
+        if any(p.needs_fundamentals for p in presets) and not cache.has_fundamentals(market):
             missing.append("실적")
         return missing
 
@@ -231,11 +261,11 @@ class App(tk.Tk):
 
     # ------------------------------------------------------------------ 동작
     def on_update(self, after: Callable[[], None] | None = None) -> None:
-        preset = self.preset
+        chosen = self.selected
         market = self.market.get()
-        universe = preset.universe if preset and preset.market == market else None
-        flows = bool(preset and preset.needs_flows)
-        fundamentals = bool(preset and preset.needs_fundamentals)
+        universe = self._universe(chosen, market)
+        flows = any(p.needs_flows for p in chosen)
+        fundamentals = any(p.needs_fundamentals for p in chosen)
 
         def work():
             kwargs = {"universe": universe} if universe else {}
@@ -267,13 +297,18 @@ class App(tk.Tk):
         self.status.set("데이터를 받는 중입니다. 처음에는 오래 걸릴 수 있습니다…")
         self.run_worker(work, finish)
 
+    def _universe(self, chosen: list[presets_mod.Preset], market: str) -> str | None:
+        """고른 전략들이 같은 유니버스를 가리키면 그것을, 아니면 기본값을 쓴다."""
+        universes = {p.universe for p in chosen if p.market == market}
+        return universes.pop() if len(universes) == 1 else None
+
     def on_find(self) -> None:
-        preset = self.preset
-        if preset is None:
-            messagebox.showwarning("선택 필요", "찾을 종목 종류를 골라주세요.")
+        chosen = self.selected
+        if not chosen:
+            messagebox.showwarning("선택 필요", "찾을 종목 종류를 하나 이상 골라주세요.")
             return
 
-        missing = self._missing_data(preset)
+        missing = self._missing_data(chosen)
         if missing:
             answer = messagebox.askyesno(
                 "데이터가 필요합니다",
@@ -285,18 +320,22 @@ class App(tk.Tk):
             return
 
         market = self.market.get()
-        universe = preset.universe if preset.market == market else None
+        universe = self._universe(chosen, market)
+        conditions = self.conditions
 
         def work():
             from chartfinder.screener import screen
 
             tickers = cache.get_tickers(market, universe) if universe else None
             return screen(
-                market, preset.conditions, tickers=tickers, top=50,
+                market, conditions, tickers=tickers, top=50,
                 progress=lambda done, total: self.report(done, total, f"살펴보는 중 {done}/{total}"),
             )
 
-        self.status.set(f"'{preset.name}' 조건으로 찾는 중…")
+        label = chosen[0].name.split(" — ")[0]
+        if len(chosen) > 1:
+            label += f" 외 {len(chosen) - 1}개"
+        self.status.set(f"'{label}' 조건 {len(conditions)}개로 찾는 중…")
         self.run_worker(work, self._show_result)
 
     def _show_result(self, result) -> None:

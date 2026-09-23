@@ -1,7 +1,7 @@
-name: 바닥 반등 + 외국인·기관 매수
+name: 바닥 반등 + 수급 — 외국인·기관이 사는 종목
 market: kr
 universe: all
-description: 반등 신호에 더해 외국인과 기관이 사고 있는 주식.
+description: 위 신호에 외국인·기관 3일 연속 순매수와 3일 거래량 30만주를 더한다.
 requires: [flows]
 order: 40
 conditions:

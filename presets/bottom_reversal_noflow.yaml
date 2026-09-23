@@ -1,7 +1,7 @@
-name: 바닥 다지고 돌아서는 종목
+name: 바닥 반등 종합 — 여러 지표가 동시에 신호
 market: kr
 universe: all
-description: 여러 지표가 동시에 반등을 가리키는 주식. 신호를 꼼꼼히 본다.
+description: 볼린저·RSI·DMI·스토캐스틱·이동평균·MACD·거래량 17개 신호를 함께 본다.
 requires: []
 order: 30
 conditions:

@@ -1,7 +1,7 @@
-name: 꾸준히 돈 버는 회사
+name: 재무 우량주 — 꾸준히 돈 버는 회사
 market: kr
 universe: all
-description: 매출과 이익이 해마다 늘고 빚이 적은 회사.
+description: 매출·영업이익 4년 연속 증가, 영업이익률 8%↑, 부채비율 100%↓, ROE 10%↑.
 requires: [fundamentals]
 order: 50
 conditions:

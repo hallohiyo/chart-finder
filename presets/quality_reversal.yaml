@@ -1,7 +1,7 @@
-name: 튼튼한 회사가 바닥에서 반등
+name: 우량주 바닥 반등 — 실적 + 차트
 market: kr
 universe: all
-description: 실적이 좋은 회사 중에서 차트가 반등 신호를 낸 주식.
+description: 재무 우량주 조건에 바닥 반등 차트 신호를 합친 23개 조건.
 requires: [fundamentals]
 order: 60
 conditions:

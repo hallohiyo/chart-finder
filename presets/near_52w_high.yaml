@@ -1,7 +1,7 @@
-name: 신고가를 앞둔 강한 종목
+name: 신고가 근접 — 52주 최고가 코앞
 market: us
 universe: sp500
-description: 1년 최고가 근처까지 올라온 힘 좋은 주식.
+description: 52주 고점 5% 이내 + MACD 0선 위 + 60일선 위.
 requires: []
 order: 80
 conditions:

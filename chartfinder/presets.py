@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterable
 
 import yaml
 
@@ -84,6 +84,36 @@ def list_presets(folder: str | Path = "presets") -> list[Path]:
     if not folder.exists():
         return []
     return sorted(p for p in folder.glob("*.yaml"))
+
+
+def merge(presets: Iterable[Preset]) -> list[ConditionSpec]:
+    """여러 전략의 조건을 하나로 합친다.
+
+    같은 조건이 여러 전략에 들어 있으면 가중치를 더한다 (여러 전략이 동시에
+    중요하다고 본 조건이므로). 파라미터는 먼저 나온 전략의 것을 쓴다 —
+    스크리너가 조건을 키로 구분하므로 같은 키를 둘로 둘 수 없다.
+    """
+    merged: dict[str, ConditionSpec] = {}
+    for preset in presets:
+        for spec in preset.conditions:
+            existing = merged.get(spec.key)
+            if existing is None:
+                merged[spec.key] = ConditionSpec(spec.key, dict(spec.params), spec.weight)
+            else:
+                existing.weight += spec.weight
+    return list(merged.values())
+
+
+def indicator_tags(preset: Preset) -> list[str]:
+    """전략이 쓰는 지표 갈래 (화면에 '이동평균 · 거래량' 처럼 보여주려고)."""
+    from .conditions import get as get_condition
+
+    seen: list[str] = []
+    for spec in preset.conditions:
+        category = get_condition(spec.key).category
+        if category not in seen:
+            seen.append(category)
+    return seen
 
 
 def load_all(folder: str | Path = "presets") -> list[tuple[Path, Preset]]:
