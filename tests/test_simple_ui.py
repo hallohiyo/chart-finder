@@ -110,3 +110,50 @@ def test_flow_and_fundamental_needs_are_reported(app, monkeypatch):
 def test_result_table_has_no_condition_columns(app):
     """조건 점수를 열로 보여주면 초보자에게는 잡음이다."""
     assert app.tree["columns"] == ("순위", "종목명", "종목코드", "현재가", "등락", "적합도")
+
+
+# --------------------------------------------------------------------------- 진행 표시
+
+
+def test_duration_is_human_readable():
+    from chartfinder.simple_ui import _duration
+
+    assert _duration(9) == "9초"
+    assert _duration(75) == "1분 15초"
+    assert _duration(3700) == "1시간 1분"
+    assert _duration(-5) == "0초"
+
+
+def test_progress_shows_count_and_percent(app):
+    app.started_at = __import__("time").monotonic()
+    app._show_progress(879, 2678, "시세 받는 중")
+
+    assert "879 / 2,678" in app.status.get()
+    assert "(33%)" in app.status.get()
+    assert app.progress["value"] == 879
+    assert app.progress["maximum"] == 2678
+
+
+def test_remaining_time_appears_only_after_a_few_items(app):
+    import time as _time
+
+    app.started_at = _time.monotonic() - 10
+    assert "남은 시간" not in app._timing_text(2, 1000)   # 표본이 적으면 추정하지 않는다
+    assert "남은 시간" in app._timing_text(100, 1000)
+    assert "남은 시간" not in app._timing_text(1000, 1000)  # 다 끝났으면 필요 없다
+
+
+def test_cancel_stops_the_next_progress_report(app):
+    """취소는 다음 진행 보고 시점에 수집 루프를 빠져나오게 한다."""
+    from chartfinder.simple_ui import Cancelled
+
+    app.busy = True
+    app.on_cancel()
+    assert app.cancelled
+
+    with pytest.raises(Cancelled):
+        app.report(10, 100, "시세 받는 중")
+
+
+def test_cancel_button_is_hidden_while_idle(app):
+    assert not app.cancel_button.winfo_ismapped()

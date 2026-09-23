@@ -11,6 +11,7 @@ from __future__ import annotations
 import queue
 import sys
 import threading
+import time
 import tkinter as tk
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
@@ -19,6 +20,21 @@ from typing import Callable
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from chartfinder import cache, presets as presets_mod
+
+class Cancelled(Exception):
+    """사용자가 취소를 눌렀을 때 수집 루프를 빠져나오기 위한 신호."""
+
+
+def _duration(seconds: float) -> str:
+    seconds = max(int(seconds), 0)
+    if seconds < 60:
+        return f"{seconds}초"
+    minutes, seconds = divmod(seconds, 60)
+    if minutes < 60:
+        return f"{minutes}분 {seconds}초"
+    hours, minutes = divmod(minutes, 60)
+    return f"{hours}시간 {minutes}분"
+
 
 PRESET_DIR = Path("presets")
 MARKETS = (("kr", "한국 주식"), ("us", "미국 주식"), ("demo", "연습용 (가짜 데이터)"))
@@ -36,6 +52,8 @@ class App(tk.Tk):
 
         self.queue: queue.Queue = queue.Queue()
         self.busy = False
+        self.cancelled = False
+        self.started_at = 0.0
         self.result = None
         self.market = tk.StringVar(value="kr")
         self.presets: dict[str, presets_mod.Preset] = {}
@@ -164,10 +182,19 @@ class App(tk.Tk):
     def _build_status(self) -> None:
         bar = ttk.Frame(self, padding=(16, 0, 16, 12))
         bar.pack(fill="x")
+
+        top = ttk.Frame(bar)
+        top.pack(fill="x")
         self.status = tk.StringVar(value="준비됨")
-        ttk.Label(bar, textvariable=self.status, foreground="#444").pack(side="left")
-        self.progress = ttk.Progressbar(bar, mode="determinate", length=240)
-        self.progress.pack(side="right")
+        ttk.Label(top, textvariable=self.status, foreground="#333").pack(side="left")
+        self.cancel_button = ttk.Button(top, text="취소", command=self.on_cancel)
+        # 작업 중에만 보인다
+
+        self.progress = ttk.Progressbar(bar, mode="determinate")
+        self.progress.pack(fill="x", pady=(4, 2))
+
+        self.timing = tk.StringVar(value="")
+        ttk.Label(bar, textvariable=self.timing, foreground="#666").pack(anchor="w")
 
     # ------------------------------------------------------------------ 상태
     @property
@@ -229,34 +256,74 @@ class App(tk.Tk):
             messagebox.showinfo("잠시만요", "앞의 작업이 끝날 때까지 기다려 주세요.")
             return
         self.busy = True
+        self.cancelled = False
+        self.started_at = time.monotonic()
         self.progress["value"] = 0
+        self.timing.set("")
+        self.cancel_button.pack(side="right")
 
         def target() -> None:
             try:
                 self.queue.put(("done", work(), done))
+            except Cancelled:
+                self.queue.put(("cancelled", None, done))
             except Exception as exc:
                 self.queue.put(("error", exc, done))
 
         threading.Thread(target=target, daemon=True).start()
 
+    def on_cancel(self) -> None:
+        """다음 진행 보고 시점에 멈춘다. 이미 받은 데이터는 남는다."""
+        if self.busy:
+            self.cancelled = True
+            self.status.set("멈추는 중…")
+
     def _drain_queue(self) -> None:
         while not self.queue.empty():
             kind, payload, done = self.queue.get()
             if kind == "progress":
-                current, total, text = payload
-                self.progress["maximum"] = max(total, 1)
-                self.progress["value"] = current
-                self.status.set(text)
+                self._show_progress(*payload)
             elif kind == "done":
-                self.busy = False
+                self._finish()
                 done(payload)
+            elif kind == "cancelled":
+                self._finish()
+                self.status.set("취소했습니다. 지금까지 받은 데이터는 그대로 남아 있습니다.")
+                self._refresh_data_status()
             elif kind == "error":
-                self.busy = False
+                self._finish()
                 self.status.set("문제가 생겼습니다")
                 messagebox.showerror("문제가 생겼습니다", str(payload))
         self.after(100, self._drain_queue)
 
+    def _finish(self) -> None:
+        self.busy = False
+        self.cancel_button.pack_forget()
+
+    def _show_progress(self, current: int, total: int, label: str) -> None:
+        total = max(total, 1)
+        self.progress["maximum"] = total
+        self.progress["value"] = current
+        percent = current / total * 100
+        self.status.set(f"{label} · {current:,} / {total:,} ({percent:.0f}%)")
+        self.timing.set(self._timing_text(current, total))
+
+    def _timing_text(self, current: int, total: int) -> str:
+        """경과 시간과 남은 시간 추정. 초반에는 추정을 내지 않는다."""
+        elapsed = time.monotonic() - self.started_at
+        text = f"경과 {_duration(elapsed)}"
+        if current >= 5 and current < total:
+            remaining = elapsed / current * (total - current)
+            text += f" · 남은 시간 약 {_duration(remaining)}"
+        return text
+
     def report(self, current: int, total: int, text: str) -> None:
+        """작업 스레드에서 진행 상황을 알린다.
+
+        취소를 눌렀다면 여기서 예외를 던져 수집 루프를 빠져나간다.
+        """
+        if self.cancelled:
+            raise Cancelled()
         self.queue.put(("progress", (current, total, text), None))
 
     # ------------------------------------------------------------------ 동작
@@ -271,17 +338,13 @@ class App(tk.Tk):
             kwargs = {"universe": universe} if universe else {}
             stats = cache.update(
                 market, years=YEARS, flows=flows,
-                progress=lambda done, total, sym: self.report(
-                    done, total, f"시세 받는 중 {done}/{total}"
-                ),
+                progress=lambda done, total, sym: self.report(done, total, "시세 받는 중"),
                 **kwargs,
             )
             if fundamentals:
                 fund = cache.update_fundamentals(
                     market,
-                    progress=lambda done, total, sym: self.report(
-                        done, total, f"실적 받는 중 {done}/{total}"
-                    ),
+                    progress=lambda done, total, sym: self.report(done, total, "실적 받는 중"),
                     **kwargs,
                 )
                 stats["fundamentals"] = fund["updated"]
@@ -289,12 +352,14 @@ class App(tk.Tk):
 
         def finish(stats):
             self.progress["value"] = self.progress["maximum"]
-            self.status.set(f"데이터 준비 완료 ({stats['updated'] + stats['skipped']}종목)")
+            done = stats["updated"] + stats["skipped"]
+            self.status.set(f"데이터 준비 완료 · {done:,}종목")
+            self.timing.set(f"걸린 시간 {_duration(time.monotonic() - self.started_at)}")
             self._refresh_data_status()
             if after:
                 after()
 
-        self.status.set("데이터를 받는 중입니다. 처음에는 오래 걸릴 수 있습니다…")
+        self.status.set("종목 목록을 확인하는 중입니다…")
         self.run_worker(work, finish)
 
     def _universe(self, chosen: list[presets_mod.Preset], market: str) -> str | None:
@@ -329,7 +394,7 @@ class App(tk.Tk):
             tickers = cache.get_tickers(market, universe) if universe else None
             return screen(
                 market, conditions, tickers=tickers, top=50,
-                progress=lambda done, total: self.report(done, total, f"살펴보는 중 {done}/{total}"),
+                progress=lambda done, total: self.report(done, total, "종목 살펴보는 중"),
             )
 
         label = chosen[0].name.split(" — ")[0]
@@ -342,6 +407,7 @@ class App(tk.Tk):
         self.tree.delete(*self.tree.get_children())
         self.result = result
         self.progress["value"] = self.progress["maximum"]
+        self.timing.set(f"걸린 시간 {_duration(time.monotonic() - self.started_at)}")
 
         if result is None or result.empty:
             self.status.set("조건에 맞는 종목이 없습니다.")
