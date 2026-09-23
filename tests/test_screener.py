@@ -43,3 +43,24 @@ def test_combine_is_weighted_average():
 def test_combine_missing_score_counts_as_zero():
     specs = [ConditionSpec("ma_alignment"), ConditionSpec("rsi_oversold")]
     assert combine({"ma_alignment": 1.0}, specs) == 0.5
+
+
+def test_unscored_conditions_flags_columns_that_are_always_zero(uptrend):
+    """데이터가 없어 0점만 나온 조건과 진짜 미달을 구분할 수 있어야 한다."""
+    import pandas as pd
+
+    from chartfinder.screener import unscored_conditions
+
+    specs = [ConditionSpec("revenue_growth"), ConditionSpec("above_ma")]
+    result = pd.DataFrame({"s_revenue_growth": [0.0, 0.0], "s_above_ma": [0.0, 0.8]})
+
+    assert unscored_conditions(result, specs) == ["revenue_growth"]
+
+
+def test_unscored_conditions_handles_empty_results():
+    from chartfinder.screener import unscored_conditions
+
+    import pandas as pd
+
+    assert unscored_conditions(pd.DataFrame(), [ConditionSpec("above_ma")]) == []
+    assert unscored_conditions(None, [ConditionSpec("above_ma")]) == []

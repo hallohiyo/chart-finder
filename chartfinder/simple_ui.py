@@ -184,6 +184,9 @@ class App(tk.Tk):
             foreground="#666",
         ).pack(anchor="w", pady=(4, 0))
 
+        # 데이터가 없어 채점되지 않은 조건이 있을 때만 나타난다 (빈 줄도 자리를 먹는다)
+        self.unscored_note = ttk.Label(box, text="", foreground="#a60")
+
     def _build_status(self) -> None:
         bar = ttk.Frame(self, padding=(14, 0, 14, 8))
         bar.pack(fill="x")
@@ -419,9 +422,12 @@ class App(tk.Tk):
         self.progress["value"] = self.progress["maximum"]
         self.timing.set(f"걸린 시간 {_duration(time.monotonic() - self.started_at)}")
 
+        self.unscored_note.pack_forget()
         if result is None or result.empty:
             self.status.set("조건에 맞는 종목이 없습니다.")
             return
+
+        self._warn_unscored(result)
 
         for i, row in enumerate(result.itertuples(index=False), start=1):
             self.tree.insert(
@@ -430,6 +436,20 @@ class App(tk.Tk):
                         f"{row.chg_pct:+.2f}%", f"{row.score * 100:.0f}%"),
             )
         self.status.set(f"{len(result)}종목을 찾았습니다. 위에 있을수록 조건에 가깝습니다.")
+
+    def _warn_unscored(self, result) -> None:
+        """모든 종목에서 0점인 조건 = 그 데이터를 아직 받지 않았다는 뜻."""
+        from chartfinder.conditions import get as get_condition
+        from chartfinder.screener import unscored_conditions
+
+        keys = unscored_conditions(result, self.conditions)
+        if not keys:
+            return
+        labels = ", ".join(get_condition(key).label for key in keys)
+        self.unscored_note.config(
+            text=f"채점되지 않은 조건: {labels} — 해당 데이터가 없어 0점 처리됐습니다."
+        )
+        self.unscored_note.pack(anchor="w")
 
     def on_open_chart(self, _event=None) -> None:
         selection = self.tree.selection()

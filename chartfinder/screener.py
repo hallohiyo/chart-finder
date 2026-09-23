@@ -67,6 +67,20 @@ def score_one(
     return {spec.key: get_condition(spec.key).score(ctx, spec.params) for spec in specs}
 
 
+def unscored_conditions(result: pd.DataFrame, specs: Iterable[ConditionSpec]) -> list[str]:
+    """모든 종목에서 0점이 나온 조건.
+
+    대개 그 조건이 보는 데이터를 받지 않았다는 뜻이다 (수급·재무 등).
+    조건이 잘못된 것과 데이터가 없는 것을 구분하려면 이걸 봐야 한다.
+    """
+    if result is None or result.empty:
+        return []
+    return [
+        spec.key for spec in specs
+        if f"s_{spec.key}" in result.columns and float(result[f"s_{spec.key}"].max()) <= 0
+    ]
+
+
 def combine(scores: Mapping[str, float], specs: Iterable[ConditionSpec]) -> float:
     """가중 평균 (0~1)."""
     total = sum(spec.weight for spec in specs)

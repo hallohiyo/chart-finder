@@ -199,3 +199,25 @@ def test_window_fits_a_small_screen(app):
 
     app.update_idletasks()
     assert app.winfo_reqheight() <= 700, app.winfo_reqheight()
+
+
+def test_unscored_conditions_are_reported_after_a_search(app):
+    """재무 데이터를 안 받은 채 재무 전략을 돌리면 0점인 이유를 알려줘야 한다."""
+    import pandas as pd
+
+    from chartfinder.presets import Preset
+    from chartfinder.screener import ConditionSpec
+
+    app._set_all(False)
+    app.presets["가짜.yaml"] = Preset(
+        name="가짜", conditions=[ConditionSpec("revenue_growth"), ConditionSpec("above_ma")]
+    )
+    app.checked["가짜.yaml"] = __import__("tkinter").BooleanVar(value=True)
+
+    result = pd.DataFrame({
+        "symbol": ["A"], "name": ["가"], "score": [0.4], "matched": [0],
+        "close": [1000.0], "chg_pct": [0.0],
+        "s_revenue_growth": [0.0], "s_above_ma": [0.8],
+    })
+    app._show_result(result)
+    assert "매출액 증가" in app.unscored_note.cget("text")

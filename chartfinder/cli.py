@@ -13,7 +13,7 @@ from rich.table import Table
 from . import cache, presets as presets_mod
 from .conditions import all_conditions, by_category, get as get_condition
 from .datasource import MARKETS, default_universe, universes
-from .screener import ConditionSpec, screen
+from .screener import ConditionSpec, screen, unscored_conditions
 
 app = typer.Typer(
     add_completion=False,
@@ -279,6 +279,23 @@ def doctor(
     _check_fundamentals(source, market, symbol, step)
 
 
+def _print_raw_finance_titles(symbol: str, step) -> None:
+    """네이버가 실제로 주는 재무 항목 이름들. 아직 못 쓰는 항목을 찾기 위한 것."""
+
+    def titles():
+        from .datasource import naver_api
+
+        _, data = naver_api.try_paths(symbol, naver_api.FINANCE_PATHS, kind="finance")
+        return [
+            str(record.get("title")) for record in naver_api.find_records(data)
+            if record.get("title")
+        ]
+
+    names = step("재무 · 응답이 주는 항목 전체", titles)
+    if names:
+        console.print(f"   {', '.join(names)}")
+
+
 def _check_fundamentals(source, market: str, symbol: str, step) -> None:
     if not getattr(source, "supports_fundamentals", False):
         console.print(f"[dim]·[/] 재무: {market} 시장은 지원하지 않습니다.")
@@ -288,6 +305,14 @@ def _check_fundamentals(source, market: str, symbol: str, step) -> None:
     if fundamentals is not None and not fundamentals.empty:
         console.print(f"   {len(fundamentals)}개 연도 · {list(fundamentals.index)}")
         console.print(f"[dim]{fundamentals.round(1).to_string()}[/]")
+
+        filled = [c for c in fundamentals.columns if fundamentals[c].notna().any()]
+        missing = [c for c in fundamentals.columns if c not in filled]
+        console.print(f"   [green]채워진 항목[/] {', '.join(filled) or '없음'}")
+        if missing:
+            console.print(f"   [yellow]빈 항목[/] {', '.join(missing)}")
+        if market == "kr":
+            _print_raw_finance_titles(symbol, step)
         return
     if market != "kr":
         return
@@ -386,6 +411,14 @@ def scan(
 
     if detail and not inline_scores:
         _print_breakdown(result, all_score_cols)
+
+    unscored = unscored_conditions(result, specs)
+    if unscored:
+        labels = ", ".join(get_condition(key).label for key in unscored)
+        console.print(
+            f"[yellow]채점되지 않은 조건[/] {labels}"
+            " [dim]— 해당 데이터를 받지 않았을 수 있습니다 (--flows / --fundamentals)[/]"
+        )
 
     if csv:
         csv.parent.mkdir(parents=True, exist_ok=True)
