@@ -103,3 +103,19 @@ def test_doctor_runs_on_demo_market(demo_home):
     assert result.exit_code == 0, result.output
     assert "종목 목록" in result.output
     assert "시세 조회" in result.output
+
+
+def test_update_does_not_leave_a_rich_proxy_on_stdout(tmp_path, monkeypatch):
+    """진행바가 stdout 을 자기 프록시로 바꿔두면 종료 시점에 트레이스백이 찍힌다.
+
+    pykrx 소음을 막으려고 stdout 을 잠깐 가로채는 코드와 겹쳐 실제로 발생했다.
+    """
+    import sys
+
+    monkeypatch.setenv("CHARTFINDER_HOME", str(tmp_path))
+    before = sys.stdout
+
+    result = runner.invoke(app, ["update", "-m", "demo", "--limit", "3", "-y", "1"])
+    assert result.exit_code == 0, result.output
+    assert type(sys.stdout) is type(before)
+    assert "FileProxy" not in type(sys.stdout).__name__

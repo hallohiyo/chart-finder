@@ -91,7 +91,7 @@ def update_cache(
     with Progress(
         SpinnerColumn(), TextColumn("[progress.description]{task.description}"),
         BarColumn(), TextColumn("{task.completed}/{task.total}"), TimeRemainingColumn(),
-        console=console,
+        console=console, redirect_stdout=False, redirect_stderr=False,
     ) as bar:
         task = bar.add_task("수집 중", total=max(len(symbols), 1))
 
@@ -116,7 +116,7 @@ def update_cache(
         with Progress(
             SpinnerColumn(), TextColumn("[progress.description]{task.description}"),
             BarColumn(), TextColumn("{task.completed}/{task.total}"), TimeRemainingColumn(),
-            console=console,
+            console=console, redirect_stdout=False, redirect_stderr=False,
         ) as bar:
             task = bar.add_task("재무 수집", total=max(len(symbols), 1))
             fund_stats = cache.update_fundamentals(
@@ -345,6 +345,7 @@ def scan(
     with Progress(
         SpinnerColumn(), TextColumn("채점 중"), BarColumn(),
         TextColumn("{task.completed}/{task.total}"), console=console, transient=True,
+        redirect_stdout=False, redirect_stderr=False,
     ) as bar:
         task = bar.add_task("scan", total=max(len(tickers), 1))
         result = screen(
