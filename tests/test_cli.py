@@ -93,9 +93,12 @@ def test_status_reports_cache(demo_home):
 
 
 def test_presets_are_listed():
+    from chartfinder.presets import load_all
+
     result = runner.invoke(app, ["presets"])
     assert result.exit_code == 0
-    assert "바닥권 반등" in result.output
+    for _, preset in load_all("presets"):
+        assert preset.name.split()[0] in result.output
 
 
 def test_doctor_runs_on_demo_market(demo_home):

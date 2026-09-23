@@ -1,7 +1,9 @@
-name: 박스권 돌파
+name: 박스권을 뚫고 올라가는 종목
 market: us
 universe: sp500
-description: 변동성이 수축된 박스권을 거래량을 동반해 돌파한 종목.
+description: 한동안 옆으로 기던 주식이 거래량과 함께 위로 뚫은 경우.
+requires: []
+order: 70
 conditions:
   - key: box_range
     weight: 1.0

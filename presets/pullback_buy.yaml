@@ -1,7 +1,9 @@
-name: 상승추세 눌림목
+name: 상승 중 잠시 쉬어가는 종목
 market: kr
 universe: all
-description: 정배열 상승 추세 중 20일선까지 밀린 종목. 거래량은 마른 상태.
+description: 꾸준히 오르던 주식이 잠깐 숨 고르는 구간. 추세를 타고 싶을 때.
+requires: []
+order: 10
 conditions:
   - key: ma_alignment
     weight: 1.5

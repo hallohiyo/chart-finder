@@ -1,9 +1,9 @@
-name: 우량주 바닥권 반등
+name: 튼튼한 회사가 바닥에서 반등
 market: kr
 universe: all
-description: >-
-  재무가 받쳐주는 우량주 중에서 차트가 바닥권 반등 신호를 낸 종목.
-  재무 캐시가 필요하다 (`update --fundamentals`).
+description: 실적이 좋은 회사 중에서 차트가 반등 신호를 낸 주식.
+requires: [fundamentals]
+order: 60
 conditions:
   # ===== 재무 =====
   # 1. 최근 4년 매출액이 해마다 증가

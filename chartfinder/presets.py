@@ -18,6 +18,10 @@ class Preset:
     universe: str = "all"
     conditions: list[ConditionSpec] = field(default_factory=list)
     description: str = ""
+    #: 이 전략에 필요한 추가 데이터 ("flows" 수급 / "fundamentals" 재무)
+    requires: list[str] = field(default_factory=list)
+    #: 초보자용 화면에서 보여줄 순서 (작을수록 위)
+    order: int = 100
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -25,8 +29,18 @@ class Preset:
             "market": self.market,
             "universe": self.universe,
             "description": self.description,
+            "requires": list(self.requires),
+            "order": self.order,
             "conditions": [spec.to_dict() for spec in self.conditions],
         }
+
+    @property
+    def needs_flows(self) -> bool:
+        return "flows" in self.requires
+
+    @property
+    def needs_fundamentals(self) -> bool:
+        return "fundamentals" in self.requires
 
 
 def load(path: str | Path) -> Preset:
@@ -50,6 +64,8 @@ def load(path: str | Path) -> Preset:
         universe=data.get("universe", "all"),
         conditions=specs,
         description=data.get("description", ""),
+        requires=list(data.get("requires") or []),
+        order=int(data.get("order", 100)),
     )
 
 
@@ -68,3 +84,9 @@ def list_presets(folder: str | Path = "presets") -> list[Path]:
     if not folder.exists():
         return []
     return sorted(p for p in folder.glob("*.yaml"))
+
+
+def load_all(folder: str | Path = "presets") -> list[tuple[Path, Preset]]:
+    """모든 프리셋을 order 순으로 (경로, 프리셋) 목록으로."""
+    loaded = [(path, load(path)) for path in list_presets(folder)]
+    return sorted(loaded, key=lambda item: (item[1].order, item[1].name))

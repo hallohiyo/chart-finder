@@ -1,7 +1,9 @@
-name: 과매도 반등
+name: 많이 빠진 뒤 반등 신호
 market: kr
 universe: all
-description: 크게 조정받고 RSI 과매도에 볼린저 하단을 이탈한 바닥권 종목.
+description: 크게 하락한 뒤 바닥을 다지는 신호가 나온 주식.
+requires: []
+order: 20
 conditions:
   - key: rsi_oversold
     weight: 2.0

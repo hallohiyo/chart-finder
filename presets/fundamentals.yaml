@@ -1,9 +1,9 @@
-name: 재무 우량주
+name: 꾸준히 돈 버는 회사
 market: kr
 universe: all
-description: >-
-  매출·영업이익이 꾸준히 늘고 수익성·안정성이 받쳐주는 종목.
-  `chartfinder update -m kr --fundamentals` 로 재무를 받아둬야 한다.
+description: 매출과 이익이 해마다 늘고 빚이 적은 회사.
+requires: [fundamentals]
+order: 50
 conditions:
   # 1. 최근 4년 매출액이 해마다 증가
   - key: revenue_growth

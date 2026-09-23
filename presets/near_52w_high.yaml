@@ -1,7 +1,9 @@
-name: 신고가 근접 모멘텀
+name: 신고가를 앞둔 강한 종목
 market: us
 universe: sp500
-description: 52주 신고가 5% 이내에서 MACD가 0선 위를 유지 중인 강세 종목.
+description: 1년 최고가 근처까지 올라온 힘 좋은 주식.
+requires: []
+order: 80
 conditions:
   - key: near_high
     weight: 2.0

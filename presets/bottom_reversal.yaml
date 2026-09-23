@@ -1,9 +1,9 @@
-name: 바닥권 반등 (수급 포함)
+name: 바닥 반등 + 외국인·기관 매수
 market: kr
 universe: all
-description: >-
-  과매도 바닥에서 반등을 확인하는 9종 조건 묶음. 외국인·기관 수급이 포함되므로
-  `chartfinder update -m kr --flows` 로 수급까지 받은 캐시가 필요하다 (한국 시장 전용).
+description: 반등 신호에 더해 외국인과 기관이 사고 있는 주식.
+requires: [flows]
+order: 40
 conditions:
   # 1. 볼린저 — 하단 지지, 이탈 후 밴드 복귀
   - key: bb_lower_touch

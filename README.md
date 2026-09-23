@@ -58,15 +58,29 @@ chartfinder status -m kr
 ## 사용법 (데스크톱 창)
 
 파이썬 기본 내장 tkinter로 만든 창. 별도 설치나 브라우저 없이 바로 뜬다.
+화면은 두 가지다.
+
+### 기본 화면 — 지표를 몰라도 쓸 수 있게
 
 ```bash
 chartfinder-ui
-# 또는
-python -m chartfinder.ui
 ```
 
+조건·파라미터·가중치를 전부 감추고 **1단계 시장 → 2단계 전략 → 3단계 찾기** 세 단계만 남겼다.
+전략은 "상승 중 잠시 쉬어가는 종목", "많이 빠진 뒤 반등 신호" 처럼 지표 이름이 아닌 말로 고른다.
+필요한 데이터가 없으면 무엇이 없는지 알려주고 바로 받을지 물어본다.
+결과는 순위·종목명·현재가·등락·**적합도(%)** 만 보여주고, 줄을 두 번 클릭하면 차트가 열린다.
+
+### 고급 화면 — 조건을 직접 만질 때
+
+```bash
+chartfinder-ui-advanced
+```
+
+(기본 화면 오른쪽 위 '고급 화면' 버튼으로도 열린다)
+
 - 위쪽에서 시장/유니버스를 고르고 **데이터 받기** → 끝나면 **검색**
-- 왼쪽 조건을 체크하면 파라미터 입력칸이 펼쳐진다 (가중치도 여기서)
+- 왼쪽 조건 49개를 체크하면 파라미터 입력칸이 펼쳐진다 (가중치도 여기서)
 - 결과 행을 **더블클릭**하면 캔들차트가 브라우저에 열린다
 - 프리셋 불러오기, CSV 저장 지원
 - 수집·검색은 별도 스레드에서 돌아가므로 창이 멈추지 않는다
@@ -171,16 +185,19 @@ chartfinder update -m us -u sp500 --fundamentals
 
 ## 프리셋
 
-| 파일 | 내용 |
-|---|---|
-| `bottom_reversal.yaml` | 바닥권 반등 19종 (볼린저·RSI·수급·DMI·스토캐스틱·이평·MACD·거래량). `--flows` 필요 |
-| `bottom_reversal_noflow.yaml` | 위에서 수급만 제외. 미국 시장이나 수급 미수집 시 |
-| `fundamentals.yaml` | 재무 우량주 6종 (매출·영업이익 증가, 이익률·부채비율·ROE·현금흐름) |
-| `quality_reversal.yaml` | 재무 우량주 + 바닥권 반등 차트 23종 |
-| `pullback_buy.yaml` | 정배열 상승 추세 중 20일선 눌림목 |
-| `oversold_rebound.yaml` | 과매도 + 볼린저 하단 이탈 바닥권 |
-| `breakout.yaml` | 박스권을 거래량 동반 돌파 |
-| `near_52w_high.yaml` | 52주 신고가 근접 모멘텀 |
+기본 화면에 그대로 뜨는 목록이라, 이름과 설명은 지표 용어 없이 쓴다.
+`requires` 는 필요한 추가 데이터, `order` 는 화면에 보일 순서다.
+
+| 파일 | 이름 | 내용 |
+|---|---|---|
+| `pullback_buy.yaml` | 상승 중 잠시 쉬어가는 종목 | 정배열 추세 중 20일선 눌림목 |
+| `oversold_rebound.yaml` | 많이 빠진 뒤 반등 신호 | 과매도 + 볼린저 하단 이탈 |
+| `bottom_reversal_noflow.yaml` | 바닥 다지고 돌아서는 종목 | 반등 신호 17종 |
+| `bottom_reversal.yaml` | 바닥 반등 + 외국인·기관 매수 | 위 + 수급 (`--flows` 필요) |
+| `fundamentals.yaml` | 꾸준히 돈 버는 회사 | 매출·영업이익 증가, 이익률·부채비율·ROE·현금흐름 |
+| `quality_reversal.yaml` | 튼튼한 회사가 바닥에서 반등 | 재무 + 차트 23종 |
+| `breakout.yaml` | 박스권을 뚫고 올라가는 종목 | 거래량 동반 돌파 |
+| `near_52w_high.yaml` | 신고가를 앞둔 강한 종목 | 52주 신고가 근접 모멘텀 |
 
 ```bash
 chartfinder scan -p presets/bottom_reversal.yaml --top 30 --detail
@@ -199,7 +216,8 @@ chartfinder/
   screener.py    전 종목 채점 + 가중 랭킹
   charts.py      캔들차트 (두 UI가 공유)
   cli.py         커맨드라인
-  ui.py          tkinter 데스크톱 창
+  simple_ui.py   tkinter 기본 화면 (조건을 감춘 초보자용)
+  ui.py          tkinter 고급 화면 (조건 직접 선택)
   app.py         Streamlit 웹 UI
 presets/         조건 세트 YAML
 ```

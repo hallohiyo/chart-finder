@@ -1,9 +1,9 @@
-name: 바닥권 반등 (수급 제외)
+name: 바닥 다지고 돌아서는 종목
 market: kr
 universe: all
-description: >-
-  바닥권 반등 조건에서 외국인·기관 수급만 뺀 것. 수급 데이터를 받지 않았거나
-  미국 시장에서 쓸 때.
+description: 여러 지표가 동시에 반등을 가리키는 주식. 신호를 꼼꼼히 본다.
+requires: []
+order: 30
 conditions:
   # 1. 볼린저 — 하단 지지, 이탈 후 밴드 복귀
   - key: bb_lower_touch

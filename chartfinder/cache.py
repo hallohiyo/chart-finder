@@ -354,6 +354,26 @@ def _last_expected_session(today: date) -> date:
     return ref
 
 
+def has_flows(market: str, sample: int = 5) -> bool:
+    """수급 컬럼이 들어 있는 캐시가 있는지 (표본만 확인)."""
+    folder = cache_home() / "prices" / market
+    if not folder.exists():
+        return False
+    for path in sorted(folder.glob("*.parquet"))[:sample]:
+        try:
+            columns = pd.read_parquet(path).columns
+        except Exception:
+            continue
+        if any(col in columns for col in FLOW_COLUMNS):
+            return True
+    return False
+
+
+def has_fundamentals(market: str) -> bool:
+    folder = cache_home() / "fundamentals" / market
+    return folder.exists() and any(folder.glob("*.parquet"))
+
+
 def stats(market: str) -> dict[str, object]:
     folder = cache_home() / "prices" / market
     files = sorted(folder.glob("*.parquet")) if folder.exists() else []
