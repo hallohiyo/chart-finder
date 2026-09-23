@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import contextlib
+import io
 from datetime import date, timedelta
 
 import pandas as pd
@@ -24,6 +26,8 @@ class KrxSource(DataSource):
 
         self._fdr = fdr
         self._pykrx = None  # 수급을 쓸 때만 로드
+        self._flow_provider: str | None = None  # 마지막으로 통한 수급 경로
+        self._fundamental_provider: str | None = None
 
     def list_tickers(self, universe: str = "all") -> list[Ticker]:
         universe = universe.lower()
@@ -76,21 +80,29 @@ class KrxSource(DataSource):
         if start > end:
             return pd.DataFrame()
 
+        providers = {
+            "naver-api": self._flows_naver_api,
+            "pykrx": self._flows_pykrx,
+            "naver-html": self._flows_naver,
+        }
+        # 한 번 통한 경로를 먼저 쓴다. 종목마다 죽은 경로를 다시 두드리면
+        # 전 종목 수집에서 헛된 요청이 수천 번 쌓인다.
+        order = [self._flow_provider] if self._flow_provider else []
+        order += [name for name in providers if name != self._flow_provider]
+
         errors: list[str] = []
-        for name, fetcher in (
-            ("naver-api", self._flows_naver_api),
-            ("pykrx", self._flows_pykrx),
-            ("naver-html", self._flows_naver),
-        ):
+        for name in order:
             try:
-                flows = fetcher(symbol, start, end)
+                flows = providers[name](symbol, start, end)
             except Exception as exc:
                 errors.append(f"{name}: {type(exc).__name__}: {exc}")
                 continue
             if flows is not None and not flows.empty:
+                self._flow_provider = name
                 return flows
             errors.append(f"{name}: 빈 응답")
 
+        self._flow_provider = None  # 다음 종목에서는 처음부터 다시 찾는다
         if errors:
             raise RuntimeError(" / ".join(errors))
         return pd.DataFrame()
@@ -99,17 +111,26 @@ class KrxSource(DataSource):
         """연간 재무 지표. 네이버 JSON API 를 먼저, 안 되면 옛 HTML 표를 읽는다."""
         from . import naver_api, naver_fundamentals
 
+        providers = {
+            "naver-api": naver_api.fetch_fundamentals,
+            "naver-html": naver_fundamentals.fetch,
+        }
+        order = [self._fundamental_provider] if self._fundamental_provider else []
+        order += [name for name in providers if name != self._fundamental_provider]
+
         errors = []
-        for name, fetcher in (("naver-api", naver_api.fetch_fundamentals),
-                              ("naver-html", naver_fundamentals.fetch)):
+        for name in order:
             try:
-                df = fetcher(symbol)
+                df = providers[name](symbol)
             except Exception as exc:
                 errors.append(f"{name}: {type(exc).__name__}: {exc}")
                 continue
             if df is not None and not df.empty:
+                self._fundamental_provider = name
                 return df
             errors.append(f"{name}: 빈 응답")
+
+        self._fundamental_provider = None
         raise RuntimeError(" / ".join(errors))
 
     def _flows_naver_api(self, symbol: str, start: date, end: date) -> pd.DataFrame:
@@ -139,9 +160,13 @@ class KrxSource(DataSource):
         cursor = start
         while cursor <= end:
             chunk_end = min(cursor + timedelta(days=FLOW_CHUNK_DAYS - 1), end)
-            raw = self._pykrx.get_market_trading_volume_by_date(
-                cursor.strftime("%Y%m%d"), chunk_end.strftime("%Y%m%d"), symbol
-            )
+            # pykrx 는 실패를 예외 대신 표준출력으로 흘린다. 종목마다 찍히면
+            # 진행 상황을 덮어버리므로 삼키고, 결과가 비었는지로 판단한다.
+            with contextlib.redirect_stdout(io.StringIO()), \
+                    contextlib.redirect_stderr(io.StringIO()):
+                raw = self._pykrx.get_market_trading_volume_by_date(
+                    cursor.strftime("%Y%m%d"), chunk_end.strftime("%Y%m%d"), symbol
+                )
             chunk = normalize_flows(raw)
             if not chunk.empty:
                 frames.append(chunk)

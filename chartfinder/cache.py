@@ -143,6 +143,7 @@ def update_fundamentals(
             continue
         save_fundamentals(market, symbol, df)
         stats["updated"] += 1
+        stats["source"] = getattr(source, "_fundamental_provider", "?")
     return stats
 
 
@@ -283,6 +284,7 @@ def update(
                             )
                             if applied:
                                 stats["flows"] += 1
+                                stats["flow_source"] = getattr(source, "_flow_provider", "?")
                             else:
                                 stats.setdefault(
                                     "flow_error",
@@ -307,6 +309,7 @@ def update(
                 if applied:
                     save(market, sym, updated)
                     stats["flows"] += 1
+                    stats["flow_source"] = getattr(source, "_flow_provider", "?")
                 else:
                     stats.setdefault(
                         "flow_error",

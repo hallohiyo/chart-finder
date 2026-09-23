@@ -28,10 +28,20 @@ BASES = ("https://m.stock.naver.com/api/stock", "https://api.stock.naver.com/sto
 TREND_PATHS = ("{code}/trend", "{code}/investor", "{code}/foreignInstitution")
 #: 연간 재무 경로 후보
 FINANCE_PATHS = ("{code}/finance/annual", "{code}/finance/annual/summary", "{code}/finance")
-#: 한 번에 요청할 수 있는 최대 건수. 크게 넣으면 404 가 돌아온다.
-PAGE_SIZE = 20
+#: 한 번에 요청할 건수 후보. 크게 넣으면 404 가 돌아오는데 상한이 공개돼 있지
+#: 않아 큰 것부터 시도하고, 통한 값을 기억해 다음 종목부터 바로 쓴다.
+PAGE_SIZES = (20, 10, 5)
 #: 수급을 받을 때 넘길 최대 페이지 수
-MAX_PAGES = 10
+MAX_PAGES = 12
+
+#: 한 번 통한 (엔드포인트, pageSize) 를 기억한다. 종목마다 죽은 경로를
+#: 다시 두드리면 전 종목 수집에서 헛된 요청이 수천 번 발생한다.
+_working: dict[str, Any] = {}
+
+
+def reset_cache() -> None:
+    """기억해 둔 엔드포인트를 지운다 (테스트·재탐색용)."""
+    _working.clear()
 
 #: 응답 키를 표준 이름으로 잇는 키워드 (소문자 비교)
 FLOW_KEYS = {
@@ -53,28 +63,53 @@ FINANCE_KEYS = {
 PERIOD_KEYS = ("yearmonth", "period", "date", "term", "기간", "결산")
 
 
+#: 연속 요청에 스로틀링이 걸릴 수 있어 실패 시 한 번 쉬었다 다시 시도한다
+RETRIES = 1
+RETRY_WAIT = 0.6
+
+
 def get_json(url: str, params: dict | None = None, timeout: float = 10.0):
+    import time
+
     import requests
 
-    response = requests.get(url, params=params, headers=HEADERS, timeout=timeout)
-    response.raise_for_status()
-    return response.json()
+    last: Exception | None = None
+    for attempt in range(RETRIES + 1):
+        try:
+            response = requests.get(url, params=params, headers=HEADERS, timeout=timeout)
+            response.raise_for_status()
+            return response.json()
+        except Exception as exc:
+            last = exc
+            if attempt < RETRIES:
+                time.sleep(RETRY_WAIT)
+    raise last
 
 
-def try_paths(symbol: str, paths: Iterable[str], params: dict | None = None):
-    """후보 경로를 차례로 두드려 처음 성공한 (url, json) 을 돌려준다."""
+def try_paths(symbol: str, paths: Iterable[str], params: dict | None = None, kind: str = ""):
+    """후보 경로를 차례로 두드려 처음 성공한 (url, json) 을 돌려준다.
+
+    kind 를 주면 통한 경로를 기억해 다음 종목부터 곧바로 그 경로를 쓴다.
+    """
+    paths = tuple(paths)
+    remembered = _working.get(f"{kind}_path")
+    candidates = [remembered] if remembered else []
+    candidates += [(base, path) for base in BASES for path in paths
+                   if (base, path) != remembered]
+
     errors = []
-    for base in BASES:
-        for path in paths:
-            url = f"{base}/{path.format(code=symbol)}"
-            try:
-                data = get_json(url, params)
-            except Exception as exc:
-                errors.append(f"{url} → {type(exc).__name__}")
-                continue
-            if data:
-                return url, data
-            errors.append(f"{url} → 빈 응답")
+    for base, path in candidates:
+        url = f"{base}/{path.format(code=symbol)}"
+        try:
+            data = get_json(url, params)
+        except Exception as exc:
+            errors.append(f"{url} → {type(exc).__name__}")
+            continue
+        if data:
+            if kind:
+                _working[f"{kind}_path"] = (base, path)
+            return url, data
+        errors.append(f"{url} → 빈 응답")
     raise RuntimeError(" / ".join(errors[:6]))
 
 
@@ -151,14 +186,16 @@ def fetch_flows(symbol: str, start: date, end: date, max_pages: int = MAX_PAGES)
 
     한 페이지가 PAGE_SIZE 건이라 시작일을 덮을 때까지 페이지를 넘긴다.
     """
-    url, data = try_paths(symbol, TREND_PATHS, {"pageSize": PAGE_SIZE, "page": 1})
+    url, data, page_size = _first_trend_page(symbol)
     frames = [parse_trend(find_records(data))]
 
     for page in range(2, max_pages + 1):
         if frames[-1].empty or frames[-1].index[0].date() <= start:
             break
         try:
-            more = parse_trend(find_records(get_json(url, {"pageSize": PAGE_SIZE, "page": page})))
+            more = parse_trend(
+                find_records(get_json(url, {"pageSize": page_size, "page": page}))
+            )
         except Exception:
             break
         if more.empty:
@@ -213,9 +250,26 @@ def _is_future_period(period: Any) -> bool:
     return (year, month) >= (today.year, today.month)
 
 
+def _first_trend_page(symbol: str):
+    """첫 페이지를 받는다. 통하는 pageSize 를 찾아 기억한다."""
+    sizes = [_working["page_size"]] if "page_size" in _working else []
+    sizes += [size for size in PAGE_SIZES if size != _working.get("page_size")]
+
+    errors = []
+    for size in sizes:
+        try:
+            url, data = try_paths(symbol, TREND_PATHS, {"pageSize": size, "page": 1}, kind="trend")
+        except Exception as exc:
+            errors.append(f"pageSize={size}: {exc}")
+            continue
+        _working["page_size"] = size
+        return url, data, size
+    raise RuntimeError(" / ".join(errors[:3]))
+
+
 def fetch_fundamentals(symbol: str, include_estimates: bool = False) -> pd.DataFrame:
     """연간 재무 지표."""
-    _, data = try_paths(symbol, FINANCE_PATHS)
+    _, data = try_paths(symbol, FINANCE_PATHS, kind="finance")
     records = find_records(data)
     return parse_finance(records, include_estimates) if records else pd.DataFrame()
 

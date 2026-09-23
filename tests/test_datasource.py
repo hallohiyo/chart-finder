@@ -338,3 +338,61 @@ def test_us_fundamentals_empty_when_statements_missing(us, monkeypatch):
 
     monkeypatch.setattr(us._yf, "Ticker", Empty, raising=False)
     assert us.fetch_fundamentals("AAPL").empty
+
+
+def test_krx_remembers_the_working_flow_provider(krx, monkeypatch):
+    """한 종목에서 통한 경로를 다음 종목에서 먼저 쓴다."""
+    from chartfinder.datasource import naver_api
+
+    index = pd.bdate_range("2026-09-14", periods=3)
+    attempts = []
+
+    def api(symbol, start, end):
+        attempts.append("naver-api")
+        return pd.DataFrame({"foreign_net": [1.0] * 3}, index=index)
+
+    monkeypatch.setattr(naver_api, "fetch_flows", api)
+    monkeypatch.setattr(
+        krx, "_flows_pykrx",
+        lambda *a: attempts.append("pykrx") or pd.DataFrame(), raising=False,
+    )
+
+    krx.fetch_flows("005930", date(2026, 9, 14), date.today())
+    attempts.clear()
+    krx.fetch_flows("000660", date(2026, 9, 14), date.today())
+    assert attempts == ["naver-api"]
+
+
+def test_krx_forgets_the_provider_when_it_stops_working(krx, monkeypatch):
+    from chartfinder.datasource import naver_api
+
+    monkeypatch.setattr(naver_api, "fetch_flows", lambda *a, **k: pd.DataFrame())
+    stock = types.ModuleType("stock")
+    stock.get_market_trading_volume_by_date = lambda *a, **k: pd.DataFrame()
+    pykrx = types.ModuleType("pykrx")
+    pykrx.stock = stock
+    monkeypatch.setitem(sys.modules, "pykrx", pykrx)
+    from chartfinder.datasource import naver_flows
+
+    monkeypatch.setattr(naver_flows, "fetch", lambda *a, **k: pd.DataFrame())
+
+    with pytest.raises(RuntimeError):
+        krx.fetch_flows("005930", date(2026, 9, 14), date.today())
+    assert krx._flow_provider is None
+
+
+def test_pykrx_chatter_does_not_reach_the_console(krx, monkeypatch, capsys):
+    """pykrx 는 실패를 예외 대신 표준출력으로 흘린다. 진행 표시를 덮으면 안 된다."""
+    stock = types.ModuleType("stock")
+
+    def noisy(*args, **kwargs):
+        print("Error occurred in get_market_trading_value_and_volume_on_ticker_by_date")
+        return pd.DataFrame()
+
+    stock.get_market_trading_volume_by_date = noisy
+    pykrx = types.ModuleType("pykrx")
+    pykrx.stock = stock
+    monkeypatch.setitem(sys.modules, "pykrx", pykrx)
+
+    krx._flows_pykrx("005930", date(2026, 9, 1), date(2026, 9, 20))
+    assert "Error occurred" not in capsys.readouterr().out

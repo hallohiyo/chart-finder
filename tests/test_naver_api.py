@@ -210,3 +210,110 @@ def test_probe_reports_keys_for_each_endpoint(monkeypatch):
     first = next(iter(report.values()))
     assert first["records"] == 3
     assert "bizdate" in first["record_keys"]
+
+
+# --------------------------------------------------------------------------- 경로 기억
+
+
+@pytest.fixture(autouse=True)
+def fresh_cache():
+    naver_api.reset_cache()
+    yield
+    naver_api.reset_cache()
+
+
+def test_working_endpoint_is_remembered_across_symbols(monkeypatch):
+    """종목마다 죽은 경로를 다시 두드리면 전 종목 수집이 헛된 요청으로 채워진다."""
+    calls = []
+
+    def fake(url, params=None, timeout=10.0):
+        calls.append(url)
+        if url.endswith("/trend"):
+            return TREND_RESPONSE
+        raise ConnectionError("404")
+
+    monkeypatch.setattr(naver_api, "get_json", fake)
+    naver_api.fetch_flows("005930", date(2026, 9, 21), date(2026, 9, 23))
+    first_round = len(calls)
+
+    calls.clear()
+    naver_api.fetch_flows("000660", date(2026, 9, 21), date(2026, 9, 23))
+    assert len(calls) <= first_round
+    assert calls[0].endswith("/trend")  # 곧바로 통하는 경로로 간다
+
+
+def test_page_size_falls_back_when_rejected(monkeypatch):
+    """pageSize 상한이 공개돼 있지 않아 큰 값부터 시도하고 통한 값을 기억한다."""
+    seen = []
+
+    def fake(url, params=None, timeout=10.0):
+        seen.append(params["pageSize"])
+        if params["pageSize"] > 5:
+            raise ConnectionError("404")
+        return TREND_RESPONSE
+
+    monkeypatch.setattr(naver_api, "get_json", fake)
+    flows = naver_api.fetch_flows("005930", date(2026, 9, 21), date(2026, 9, 23))
+    assert not flows.empty
+    assert seen[-1] == 5
+
+    seen.clear()
+    naver_api.fetch_flows("000660", date(2026, 9, 21), date(2026, 9, 23))
+    assert seen[0] == 5  # 거부당한 크기를 다시 시도하지 않는다
+
+
+def test_finance_endpoint_is_remembered(monkeypatch):
+    calls = []
+
+    def fake(url, params=None, timeout=10.0):
+        calls.append(url)
+        if url.endswith("/finance/annual"):
+            return FINANCE_RESPONSE
+        raise ConnectionError("404")
+
+    monkeypatch.setattr(naver_api, "get_json", fake)
+    naver_api.fetch_fundamentals("005930")
+    calls.clear()
+    naver_api.fetch_fundamentals("000660")
+    assert calls[0].endswith("/finance/annual")
+
+
+def test_get_json_retries_once_before_giving_up(monkeypatch):
+    """연속 요청에 스로틀링이 걸릴 수 있어 한 번은 쉬었다 다시 시도한다."""
+    attempts = []
+
+    class Response:
+        def __init__(self, fail):
+            self.fail = fail
+
+        def raise_for_status(self):
+            if self.fail:
+                raise ConnectionError("429")
+
+        def json(self):
+            return {"ok": True}
+
+    def fake_get(url, params=None, headers=None, timeout=None):
+        attempts.append(url)
+        return Response(fail=len(attempts) == 1)
+
+    import requests
+
+    monkeypatch.setattr(requests, "get", fake_get)
+    monkeypatch.setattr(naver_api, "RETRY_WAIT", 0)
+
+    assert naver_api.get_json("https://example.test") == {"ok": True}
+    assert len(attempts) == 2
+
+
+def test_get_json_raises_after_the_retry(monkeypatch):
+    import requests
+
+    def always_fail(url, params=None, headers=None, timeout=None):
+        raise ConnectionError("차단")
+
+    monkeypatch.setattr(requests, "get", always_fail)
+    monkeypatch.setattr(naver_api, "RETRY_WAIT", 0)
+
+    with pytest.raises(ConnectionError):
+        naver_api.get_json("https://example.test")

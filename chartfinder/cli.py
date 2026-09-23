@@ -107,6 +107,8 @@ def update_cache(
     summary = f"[green]완료[/] 갱신 {stats['updated']} · 최신 {stats['skipped']} · 실패 {stats['failed']}"
     if flows:
         summary += f" · 수급 {stats['flows']}"
+        if stats.get("flow_source"):
+            summary += f" [dim]({stats['flow_source']})[/]"
     console.print(summary)
 
     # 수급 0건 자체는 '받을 게 없었다'는 뜻일 수 있으므로, 실제 오류가 있을 때만 알린다
@@ -123,10 +125,13 @@ def update_cache(
                     task, completed=done, total=max(total, 1), description=f"재무 수집 {sym}"
                 ),
             )
-        console.print(
+        fund_summary = (
             f"[green]재무[/] 갱신 {fund_stats['updated']} · 최신 {fund_stats['skipped']} "
             f"· 실패 {fund_stats['failed']}"
         )
+        if fund_stats.get("source"):
+            fund_summary += f" [dim]({fund_stats['source']})[/]"
+        console.print(fund_summary)
         if fund_stats.get("error"):
             console.print(f"[yellow]재무 수집 오류:[/] {fund_stats['error']}")
 
