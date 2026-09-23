@@ -296,6 +296,22 @@ def _print_raw_finance_titles(symbol: str, step) -> None:
         console.print(f"   {', '.join(names)}")
 
 
+def _check_dart(symbol: str, step) -> None:
+    """영업활동현금흐름은 네이버가 주지 않아 DART 를 쓴다."""
+    from .datasource import dart
+
+    if not dart.enabled():
+        console.print(
+            "[dim]·[/] 영업현금흐름: DART 키가 없어 건너뜁니다. "
+            "opendart.fss.or.kr 에서 무료 발급 후 DART_API_KEY 환경변수에 넣으면 채워집니다."
+        )
+        return
+
+    flows = step(f"영업현금흐름 · DART ({symbol})", lambda: dart.fetch_cash_flow(symbol))
+    if flows is not None and not flows.empty:
+        console.print(f"[dim]{flows.to_string()}[/]")
+
+
 def _check_fundamentals(source, market: str, symbol: str, step) -> None:
     if not getattr(source, "supports_fundamentals", False):
         console.print(f"[dim]·[/] 재무: {market} 시장은 지원하지 않습니다.")
@@ -313,6 +329,7 @@ def _check_fundamentals(source, market: str, symbol: str, step) -> None:
             console.print(f"   [yellow]빈 항목[/] {', '.join(missing)}")
         if market == "kr":
             _print_raw_finance_titles(symbol, step)
+            _check_dart(symbol, step)
         return
     if market != "kr":
         return

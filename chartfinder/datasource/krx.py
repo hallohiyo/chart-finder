@@ -108,7 +108,11 @@ class KrxSource(DataSource):
         return pd.DataFrame()
 
     def fetch_fundamentals(self, symbol: str) -> pd.DataFrame:
-        """연간 재무 지표. 네이버 JSON API 를 먼저, 안 되면 옛 HTML 표를 읽는다."""
+        """연간 재무 지표.
+
+        네이버 JSON API 를 먼저, 안 되면 옛 HTML 표를 읽는다. 네이버는 현금흐름
+        항목을 주지 않으므로, DART 키가 설정돼 있으면 영업활동현금흐름만 덧붙인다.
+        """
         from . import naver_api, naver_fundamentals
 
         providers = {
@@ -127,11 +131,28 @@ class KrxSource(DataSource):
                 continue
             if df is not None and not df.empty:
                 self._fundamental_provider = name
-                return df
+                return self._with_cash_flow(symbol, df)
             errors.append(f"{name}: 빈 응답")
 
         self._fundamental_provider = None
         raise RuntimeError(" / ".join(errors))
+
+    def _with_cash_flow(self, symbol: str, df: pd.DataFrame) -> pd.DataFrame:
+        """DART 에서 영업활동현금흐름을 받아 채운다 (키가 있을 때만)."""
+        from . import dart
+
+        if not dart.enabled() or df["operating_cash_flow"].notna().any():
+            return df
+        try:
+            flows = dart.fetch_cash_flow(symbol)
+        except Exception:
+            return df  # 현금흐름 하나 때문에 나머지 재무를 버리지는 않는다
+        if flows is None or flows.empty:
+            return df
+
+        df = df.copy()
+        df["operating_cash_flow"] = flows["operating_cash_flow"].reindex(df.index)
+        return df
 
     def _flows_naver_api(self, symbol: str, start: date, end: date) -> pd.DataFrame:
         from . import naver_api
