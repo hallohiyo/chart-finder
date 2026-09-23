@@ -30,6 +30,19 @@ US_LISTING = pd.DataFrame(
 )
 
 
+@pytest.fixture(autouse=True)
+def offline(monkeypatch):
+    """네이버 JSON API 를 빈 응답으로 고정한다.
+
+    KRX 소스가 이 경로를 먼저 시도하므로, 막지 않으면 테스트가 실제 네트워크를
+    두드리고 타임아웃만큼 느려진다. 이 경로를 검증하는 테스트는 직접 덮어쓴다.
+    """
+    from chartfinder.datasource import naver_api
+
+    monkeypatch.setattr(naver_api, "fetch_flows", lambda *a, **k: pd.DataFrame())
+    monkeypatch.setattr(naver_api, "fetch_fundamentals", lambda *a, **k: pd.DataFrame())
+
+
 def _ohlcv_frame(rows: int = 30) -> pd.DataFrame:
     index = pd.bdate_range("2024-01-01", periods=rows)
     return pd.DataFrame(
@@ -261,6 +274,26 @@ def test_krx_reports_both_providers_when_both_fail(krx, monkeypatch):
     with pytest.raises(RuntimeError) as err:
         krx.fetch_flows("005930", date(2026, 9, 14), date.today())
     assert "pykrx" in str(err.value) and "naver" in str(err.value)
+
+
+def test_krx_prefers_the_json_api_over_scraping(krx, monkeypatch):
+    """새 네이버는 화면을 JS 로 그려 HTML 에 표가 없다. JSON API 가 먼저다."""
+    from chartfinder.datasource import naver_api, naver_flows
+
+    index = pd.bdate_range("2026-09-14", periods=3)
+    monkeypatch.setattr(
+        naver_api, "fetch_flows",
+        lambda *a, **k: pd.DataFrame({"foreign_net": [1.0] * 3}, index=index),
+    )
+    called = []
+    monkeypatch.setattr(
+        naver_flows, "fetch",
+        lambda *a, **k: called.append(1) or pd.DataFrame(),
+    )
+
+    flows = krx.fetch_flows("005930", date(2026, 9, 14), date.today())
+    assert not flows.empty
+    assert not called  # HTML 경로까지 가지 않는다
 
 
 def test_us_fundamentals_computed_from_statements(us, monkeypatch):

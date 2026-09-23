@@ -77,7 +77,11 @@ class KrxSource(DataSource):
             return pd.DataFrame()
 
         errors: list[str] = []
-        for name, fetcher in (("pykrx", self._flows_pykrx), ("naver", self._flows_naver)):
+        for name, fetcher in (
+            ("naver-api", self._flows_naver_api),
+            ("pykrx", self._flows_pykrx),
+            ("naver-html", self._flows_naver),
+        ):
             try:
                 flows = fetcher(symbol, start, end)
             except Exception as exc:
@@ -92,15 +96,29 @@ class KrxSource(DataSource):
         return pd.DataFrame()
 
     def fetch_fundamentals(self, symbol: str) -> pd.DataFrame:
-        """연간 재무 지표. 네이버 기업실적분석 표를 읽는다.
+        """연간 재무 지표. 네이버 JSON API 를 먼저, 안 되면 옛 HTML 표를 읽는다."""
+        from . import naver_api, naver_fundamentals
 
-        영업활동현금흐름은 이 표에 없어 비어 있다 (DART 등 별도 경로 필요).
-        """
-        from . import naver_fundamentals
+        errors = []
+        for name, fetcher in (("naver-api", naver_api.fetch_fundamentals),
+                              ("naver-html", naver_fundamentals.fetch)):
+            try:
+                df = fetcher(symbol)
+            except Exception as exc:
+                errors.append(f"{name}: {type(exc).__name__}: {exc}")
+                continue
+            if df is not None and not df.empty:
+                return df
+            errors.append(f"{name}: 빈 응답")
+        raise RuntimeError(" / ".join(errors))
 
-        return naver_fundamentals.fetch(symbol)
+    def _flows_naver_api(self, symbol: str, start: date, end: date) -> pd.DataFrame:
+        from . import naver_api
+
+        return naver_api.fetch_flows(symbol, start, end)
 
     def _flows_naver(self, symbol: str, start: date, end: date) -> pd.DataFrame:
+        """옛 HTML 표. 새 네이버는 화면을 JS 로 그려 표가 없지만, 남겨둔다."""
         from . import naver_flows
 
         return naver_flows.fetch(symbol, start, end)

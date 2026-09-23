@@ -254,6 +254,18 @@ def doctor(
                 console.print(f"   표 파싱: {tables}")
             console.print(f"[dim]   본문: {str(info.get('snippet'))[:200]}[/]")
 
+    def api_probe():
+        from .datasource import naver_api
+
+        return naver_api.probe(symbol)
+
+    if naver is None or naver.empty:
+        report = step("네이버 JSON API 탐색", api_probe)
+        if report:
+            for url, result in report.items():
+                console.print(f"   [cyan]{url}[/]")
+                console.print(f"     {str(result)[:400]}")
+
     flows = step(f"수급 최종 ({symbol})", lambda: source.fetch_flows(symbol, start, end))
     if flows is not None and not flows.empty:
         console.print(f"   {len(flows)}행 · 컬럼: {list(flows.columns)}")
