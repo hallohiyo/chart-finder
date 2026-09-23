@@ -157,3 +157,45 @@ def test_cancel_stops_the_next_progress_report(app):
 
 def test_cancel_button_is_hidden_while_idle(app):
     assert not app.cancel_button.winfo_ismapped()
+
+
+# --------------------------------------------------------------------------- 기본 선택과 크기
+
+
+def test_all_strategies_are_selected_by_default(app):
+    """대개 조건을 다 넣고 보므로 기본은 전체 선택이다."""
+    assert len(app.selected) == len(app.presets)
+
+
+def test_select_all_and_clear_buttons(app):
+    app._set_all(False)
+    assert app.selected == []
+    assert "하나 이상" in app.choice_summary.cget("text")
+
+    app._set_all(True)
+    assert len(app.selected) == len(app.presets)
+
+
+def test_choice_summary_stays_short_when_many_are_selected(app):
+    """전략 이름을 전부 나열하면 한 줄을 넘어간다."""
+    app._set_all(True)
+    text = app.choice_summary.cget("text")
+    assert "전체" in text
+    assert len(text) < 40
+
+    names = list(app.checked)
+    app._set_all(False)
+    for name in names[:4]:
+        app.checked[name].set(True)
+    app._refresh_choice()
+    assert "외 2개" in app.choice_summary.cget("text")
+
+
+def test_window_fits_a_small_screen(app):
+    """전체화면을 하지 않아도 보여야 한다."""
+    width, height = app.geometry().split("+")[0].split("x")
+    assert int(width) <= 1000
+    assert int(height) <= 700
+
+    app.update_idletasks()
+    assert app.winfo_reqheight() <= 700, app.winfo_reqheight()

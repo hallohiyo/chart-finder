@@ -47,8 +47,8 @@ class App(tk.Tk):
     def __init__(self) -> None:
         super().__init__()
         self.title("주식 찾기")
-        self.geometry("1040x920")
-        self.minsize(900, 700)
+        self.geometry("1000x680")
+        self.minsize(820, 560)
 
         self.queue: queue.Queue = queue.Queue()
         self.busy = False
@@ -65,16 +65,15 @@ class App(tk.Tk):
 
     # ------------------------------------------------------------------ 화면
     def _build(self) -> None:
-        header = ttk.Frame(self, padding=(16, 14, 16, 6))
+        header = ttk.Frame(self, padding=(14, 10, 14, 2))
         header.pack(fill="x")
-        ttk.Label(header, text="주식 찾기", font=("", 20, "bold")).pack(anchor="w")
+        ttk.Label(header, text="주식 찾기", font=("", 16, "bold")).pack(side="left")
         ttk.Label(
-            header,
-            text="찾고 싶은 종류를 고르고 버튼만 누르세요. 조건은 알아서 적용됩니다.",
-            foreground="#555",
-        ).pack(anchor="w")
+            header, text="  시장과 전략을 고르고 '종목 찾기'를 누르세요.",
+            foreground="#666",
+        ).pack(side="left", padx=(8, 0))
 
-        body = ttk.Frame(self, padding=(16, 0, 16, 0))
+        body = ttk.Frame(self, padding=(14, 0, 14, 0))
         body.pack(fill="both", expand=True)
 
         self._build_market(body)
@@ -84,8 +83,8 @@ class App(tk.Tk):
         self._build_status()
 
     def _build_market(self, parent: ttk.Frame) -> None:
-        box = ttk.LabelFrame(parent, text=" 1단계 · 어느 시장에서 찾을까요? ", padding=10)
-        box.pack(fill="x", pady=(8, 6))
+        box = ttk.LabelFrame(parent, text=" 1단계 · 시장 ", padding=(10, 6))
+        box.pack(fill="x", pady=(6, 4))
 
         row = ttk.Frame(box)
         row.pack(fill="x")
@@ -93,17 +92,17 @@ class App(tk.Tk):
             ttk.Radiobutton(
                 row, text=label, value=code, variable=self.market,
                 command=self._refresh_data_status,
-            ).pack(side="left", padx=(0, 18))
+            ).pack(side="left", padx=(0, 14))
 
-        self.data_status = ttk.Label(box, text="", foreground="#555")
-        self.data_status.pack(anchor="w", pady=(8, 0))
+        # 데이터 상태는 같은 줄 오른쪽에 (세로 공간을 아낀다)
+        self.data_status = ttk.Label(row, text="", foreground="#555")
+        self.data_status.pack(side="right")
 
     def _build_strategies(self, parent: ttk.Frame) -> None:
         box = ttk.LabelFrame(
-            parent, text=" 2단계 · 어떤 종목을 찾을까요?  (여러 개 고르면 조건을 합칩니다) ",
-            padding=10,
+            parent, text=" 2단계 · 전략  (여러 개를 고르면 조건을 합칩니다) ", padding=(10, 6),
         )
-        box.pack(fill="x", pady=6)
+        box.pack(fill="x", pady=4)
 
         loaded = presets_mod.load_all(PRESET_DIR)
         if not loaded:
@@ -112,37 +111,44 @@ class App(tk.Tk):
 
         for index, (path, preset) in enumerate(loaded):
             self.presets[path.name] = preset
-            variable = tk.BooleanVar(value=index == 0)
+            variable = tk.BooleanVar(value=True)  # 기본은 전부 선택
             self.checked[path.name] = variable
 
+            # 한 전략 = 한 줄. 설명은 같은 줄 회색 글씨로 (세로 공간을 아낀다)
             row = ttk.Frame(box)
-            row.pack(fill="x", pady=1)
+            row.pack(fill="x")
             ttk.Checkbutton(
                 row, text=preset.name, variable=variable, command=self._refresh_choice,
-            ).pack(anchor="w")
+                width=34,
+            ).pack(side="left")
 
             note = preset.description
             if preset.needs_flows:
-                note += "  [수급 데이터 필요]"
+                note += "  [수급 필요]"
             if preset.needs_fundamentals:
-                note += "  [실적 데이터 필요]"
-            detail = ttk.Frame(row)
-            detail.pack(fill="x", padx=(24, 0))
-            ttk.Label(detail, text=note, foreground="#555").pack(side="left")
-            ttk.Label(
-                detail, text="  · " + " · ".join(presets_mod.indicator_tags(preset)),
-                foreground="#999",
-            ).pack(side="left")
+                note += "  [실적 필요]"
+            ttk.Label(row, text=note, foreground="#666").pack(side="left")
 
-        self.choice_summary = ttk.Label(box, text="", foreground="#333")
-        self.choice_summary.pack(anchor="w", pady=(8, 0))
+        buttons = ttk.Frame(box)
+        buttons.pack(fill="x", pady=(6, 0))
+        ttk.Button(buttons, text="전체 선택", width=10,
+                   command=lambda: self._set_all(True)).pack(side="left")
+        ttk.Button(buttons, text="전체 해제", width=10,
+                   command=lambda: self._set_all(False)).pack(side="left", padx=4)
+        self.choice_summary = ttk.Label(buttons, text="", foreground="#333")
+        self.choice_summary.pack(side="left", padx=(10, 0))
+        self._refresh_choice()
+
+    def _set_all(self, value: bool) -> None:
+        for variable in self.checked.values():
+            variable.set(value)
         self._refresh_choice()
 
     def _build_action(self, parent: ttk.Frame) -> None:
         row = ttk.Frame(parent)
-        row.pack(fill="x", pady=(10, 4))
+        row.pack(fill="x", pady=(6, 2))
 
-        ttk.Label(row, text=" 3단계 · ", font=("", 10, "bold")).pack(side="left")
+        ttk.Label(row, text="3단계 · ", font=("", 10, "bold")).pack(side="left")
         self.find_button = ttk.Button(row, text="종목 찾기", command=self.on_find)
         self.find_button.pack(side="left")
         ttk.Button(row, text="데이터 받기 / 새로고침", command=self.on_update).pack(
@@ -152,14 +158,14 @@ class App(tk.Tk):
         ttk.Button(row, text="고급 화면", command=self.on_advanced).pack(side="right")
 
     def _build_results(self, parent: ttk.Frame) -> None:
-        box = ttk.LabelFrame(parent, text=" 결과 ", padding=8)
-        box.pack(fill="both", expand=True, pady=(6, 8))
+        box = ttk.LabelFrame(parent, text=" 결과 ", padding=(8, 4))
+        box.pack(fill="both", expand=True, pady=(4, 4))
 
         # 표와 스크롤바는 한 줄에, 안내 문구는 그 아래에 둔다
         table = ttk.Frame(box)
         table.pack(fill="both", expand=True)
 
-        self.tree = ttk.Treeview(table, columns=COLUMNS, show="headings", height=12)
+        self.tree = ttk.Treeview(table, columns=COLUMNS, show="headings", height=8)
         scroll = ttk.Scrollbar(table, orient="vertical", command=self.tree.yview)
         self.tree.configure(yscrollcommand=scroll.set)
 
@@ -174,13 +180,12 @@ class App(tk.Tk):
         self.tree.bind("<Double-1>", self.on_open_chart)
 
         ttk.Label(
-            box,
-            text="줄을 두 번 클릭하면 차트가 열립니다. · 적합도는 조건에 얼마나 가까운지를 나타냅니다.",
+            box, text="줄을 두 번 클릭하면 차트가 열립니다. 적합도는 조건에 얼마나 가까운지입니다.",
             foreground="#666",
-        ).pack(anchor="w", pady=(6, 0))
+        ).pack(anchor="w", pady=(4, 0))
 
     def _build_status(self) -> None:
-        bar = ttk.Frame(self, padding=(16, 0, 16, 12))
+        bar = ttk.Frame(self, padding=(14, 0, 14, 8))
         bar.pack(fill="x")
 
         top = ttk.Frame(bar)
@@ -212,11 +217,19 @@ class App(tk.Tk):
         if not chosen:
             self.choice_summary.config(text="전략을 하나 이상 골라주세요.", foreground="#b00")
             return
-        names = ", ".join(preset.name.split(" — ")[0] for preset in chosen)
         self.choice_summary.config(
-            text=f"고른 전략 {len(chosen)}개 ({names}) · 합친 조건 {len(self.conditions)}개",
+            text=f"{self._choice_label(chosen)} · 합친 조건 {len(self.conditions)}개",
             foreground="#333",
         )
+
+    def _choice_label(self, chosen: list[presets_mod.Preset]) -> str:
+        """고른 전략을 한 줄에 들어갈 길이로 요약한다."""
+        if len(chosen) == len(self.presets):
+            return f"전체 {len(chosen)}개 전략"
+        names = [preset.name.split(" — ")[0] for preset in chosen]
+        if len(names) <= 3:
+            return ", ".join(names)
+        return f"{', '.join(names[:2])} 외 {len(names) - 2}개"
 
     def _refresh_data_status(self) -> None:
         market = self.market.get()
@@ -397,10 +410,7 @@ class App(tk.Tk):
                 progress=lambda done, total: self.report(done, total, "종목 살펴보는 중"),
             )
 
-        label = chosen[0].name.split(" — ")[0]
-        if len(chosen) > 1:
-            label += f" 외 {len(chosen) - 1}개"
-        self.status.set(f"'{label}' 조건 {len(conditions)}개로 찾는 중…")
+        self.status.set(f"{self._choice_label(chosen)} · 조건 {len(conditions)}개로 찾는 중…")
         self.run_worker(work, self._show_result)
 
     def _show_result(self, result) -> None:
