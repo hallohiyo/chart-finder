@@ -373,7 +373,10 @@ def scan(
         [], "--cond", "-c",
         help="조건. 예: -c rsi_oversold:threshold=35,weight=2 (반복 지정 가능)",
     ),
-    preset: Optional[Path] = typer.Option(None, "--preset", "-p", help="프리셋 YAML 경로"),
+    preset: list[Path] = typer.Option(
+        [], "--preset", "-p",
+        help="프리셋 YAML. 여러 번 지정하면 전략마다 따로 채점하고 가장 잘 맞는 점수로 순위를 매긴다",
+    ),
     market: Optional[str] = typer.Option(None, "--market", "-m", help=f"시장 {MARKETS}"),
     universe: Optional[str] = typer.Option(None, "--universe", "-u", help="유니버스"),
     top: int = typer.Option(20, "--top", "-n", help="상위 N종목"),
@@ -383,7 +386,12 @@ def scan(
     detail: bool = typer.Option(False, "--detail", "-d", help="조건별 점수도 표시"),
 ) -> None:
     """조건에 가장 근접한 종목을 찾는다."""
-    specs, market, universe = _resolve_specs(cond, preset, market, universe)
+    if len(preset) > 1:
+        _scan_multi(preset, market, universe, top, min_score, csv)
+        return
+
+    specs, market, universe = _resolve_specs(cond, preset[0] if preset else None,
+                                             market, universe)
 
     tickers = cache.get_tickers(market, universe)
     console.print(
@@ -450,6 +458,77 @@ def scan(
         console.print(f"[green]저장[/] {csv}")
 
 
+def _scan_multi(
+    paths: list[Path], market: Optional[str], universe: Optional[str],
+    top: int, min_score: float, csv: Optional[Path],
+) -> None:
+    """전략마다 따로 채점한다. 평균내면 서로 반대인 조건이 섞여 희석된다."""
+    from .screener import screen_multi
+
+    loaded = [(path, presets_mod.load(path)) for path in paths]
+    strategies = {preset.name.split(" — ")[0]: preset.conditions for _, preset in loaded}
+    market = market or loaded[0][1].market
+    universe = _resolve_universe(market, universe or loaded[0][1].universe)
+
+    tickers = cache.get_tickers(market, universe)
+    console.print(
+        f"[bold]{market.upper()}/{universe}[/] {len(tickers)}종목 · 전략 {len(strategies)}개 "
+        + " · ".join(f"{name}({len(specs)})" for name, specs in strategies.items())
+    )
+
+    with Progress(
+        SpinnerColumn(), TextColumn("채점 중"), BarColumn(),
+        TextColumn("{task.completed}/{task.total}"), console=console, transient=True,
+        redirect_stdout=False, redirect_stderr=False,
+    ) as bar:
+        task = bar.add_task("scan", total=max(len(tickers), 1))
+        result = screen_multi(
+            market, strategies, tickers=tickers, top=top, min_score=min_score,
+            progress=lambda done, total: bar.update(task, completed=done, total=max(total, 1)),
+        )
+
+    if result.empty:
+        console.print("[yellow]조건에 맞는 종목이 없습니다.[/]")
+        return
+
+    table = Table(show_lines=False)
+    table.add_column("#", justify="right", style="dim")
+    table.add_column("종목", style="cyan", no_wrap=True)
+    table.add_column("이름", no_wrap=True)
+    table.add_column("적합도", justify="right", style="bold green")
+    table.add_column("맞는 전략")
+    table.add_column("종가", justify="right")
+    table.add_column("등락%", justify="right")
+
+    # 전략 이름에 공백이 있어 itertuples 는 컬럼명을 바꿔버린다
+    records = result.to_dict("records")
+    for i, row in enumerate(records, start=1):
+        change = row["chg_pct"]
+        table.add_row(
+            str(i), row["symbol"], row["name"], f"{row['score']:.3f}", row["strategy"],
+            f"{row['close']:,.2f}",
+            f"[red]{change:+.2f}[/]" if change < 0 else f"[green]{change:+.2f}[/]",
+        )
+    console.print(table)
+
+    # 전략별 점수는 열로 넣으면 좁은 터미널에서 뭉개지므로 줄로 푼다
+    console.print()
+    for i, row in enumerate(records, start=1):
+        scores = " · ".join(
+            f"{name} {row[f'p_{name}']:.2f}" for name in strategies
+        )
+        console.print(f"[dim]{i:>2}[/] [cyan]{row['symbol']}[/] {row['name']}")
+        console.print(f"     {scores}")
+    console.print(
+        "[dim]적합도는 여러 전략의 평균이 아니라 가장 잘 맞는 전략 하나의 점수입니다.[/]"
+    )
+
+    if csv:
+        csv.parent.mkdir(parents=True, exist_ok=True)
+        result.to_csv(csv, index=False, encoding="utf-8-sig")
+        console.print(f"[green]저장[/] {csv}")
+
+
 def _print_breakdown(result, score_cols: list[str]) -> None:
     """종목별로 어떤 조건을 충족했고 어디서 깎였는지 풀어서 보여준다."""
     console.print()
@@ -481,7 +560,7 @@ def _print_breakdown(result, score_cols: list[str]) -> None:
 @app.command("backtest")
 def backtest(
     cond: list[str] = typer.Option([], "--cond", "-c", help="조건 (scan 과 같은 문법)"),
-    preset: Optional[Path] = typer.Option(None, "--preset", "-p", help="프리셋 YAML"),
+    preset: Optional[Path] = typer.Option(None, "--preset", "-p", help="프리셋 YAML (하나만)"),
     market: Optional[str] = typer.Option(None, "--market", "-m", help=f"시장 {MARKETS}"),
     universe: Optional[str] = typer.Option(None, "--universe", "-u", help="유니버스"),
     horizon: int = typer.Option(20, "--horizon", "-h", help="이후 수익률을 볼 영업일 수"),

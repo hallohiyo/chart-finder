@@ -38,7 +38,7 @@ def _duration(seconds: float) -> str:
 
 PRESET_DIR = Path("presets")
 MARKETS = (("kr", "한국 주식"), ("us", "미국 주식"), ("demo", "연습용 (가짜 데이터)"))
-COLUMNS = ("순위", "종목명", "종목코드", "현재가", "등락", "적합도")
+COLUMNS = ("순위", "종목명", "종목코드", "현재가", "등락", "적합도", "맞는 전략")
 #: 수집 기간 (년). 초보자에게 물어볼 값이 아니라 고정한다.
 YEARS = 2
 
@@ -169,7 +169,8 @@ class App(tk.Tk):
         scroll = ttk.Scrollbar(table, orient="vertical", command=self.tree.yview)
         self.tree.configure(yscrollcommand=scroll.set)
 
-        widths = {"순위": 50, "종목명": 220, "종목코드": 90, "현재가": 110, "등락": 80, "적합도": 90}
+        widths = {"순위": 46, "종목명": 190, "종목코드": 84, "현재가": 100, "등락": 74,
+                  "적합도": 74, "맞는 전략": 150}
         for col in COLUMNS:
             self.tree.heading(col, text=col)
             self.tree.column(
@@ -180,7 +181,9 @@ class App(tk.Tk):
         self.tree.bind("<Double-1>", self.on_open_chart)
 
         ttk.Label(
-            box, text="줄을 두 번 클릭하면 차트가 열립니다. 적합도는 조건에 얼마나 가까운지입니다.",
+            box,
+            text="줄을 두 번 클릭하면 차트가 열립니다. "
+                 "적합도는 여러 전략을 평균낸 값이 아니라, 가장 잘 맞는 전략 하나의 점수입니다.",
             foreground="#666",
         ).pack(anchor="w", pady=(4, 0))
 
@@ -211,8 +214,13 @@ class App(tk.Tk):
         return [self.presets[name] for name, var in self.checked.items() if var.get()]
 
     @property
+    def strategies(self) -> dict:
+        """전략 이름 → 조건 목록. 전략마다 따로 채점한다."""
+        return {preset.name.split(" — ")[0]: preset.conditions for preset in self.selected}
+
+    @property
     def conditions(self) -> list:
-        """고른 전략들의 조건을 합친 것."""
+        """고른 전략들의 조건을 합친 것 (채점되지 않은 조건 안내용)."""
         return presets_mod.merge(self.selected)
 
     def _refresh_choice(self) -> None:
@@ -221,7 +229,8 @@ class App(tk.Tk):
             self.choice_summary.config(text="전략을 하나 이상 골라주세요.", foreground="#b00")
             return
         self.choice_summary.config(
-            text=f"{self._choice_label(chosen)} · 합친 조건 {len(self.conditions)}개",
+            text=f"{self._choice_label(chosen)} · 조건 {len(self.conditions)}개 "
+                 f"(전략마다 따로 채점합니다)",
             foreground="#333",
         )
 
@@ -402,18 +411,20 @@ class App(tk.Tk):
 
         market = self.market.get()
         universe = self._universe(chosen, market)
-        conditions = self.conditions
+        strategies = self.strategies
 
         def work():
-            from chartfinder.screener import screen
+            from chartfinder.screener import screen_multi
 
             tickers = cache.get_tickers(market, universe) if universe else None
-            return screen(
-                market, conditions, tickers=tickers, top=50,
+            return screen_multi(
+                market, strategies, tickers=tickers, top=50,
                 progress=lambda done, total: self.report(done, total, "종목 살펴보는 중"),
             )
 
-        self.status.set(f"{self._choice_label(chosen)} · 조건 {len(conditions)}개로 찾는 중…")
+        self.status.set(
+            f"{self._choice_label(chosen)} · 조건 {len(self.conditions)}개로 찾는 중…"
+        )
         self.run_worker(work, self._show_result)
 
     def _show_result(self, result) -> None:
@@ -429,13 +440,17 @@ class App(tk.Tk):
 
         self._warn_unscored(result)
 
-        for i, row in enumerate(result.itertuples(index=False), start=1):
+        # 전략 이름 컬럼에 공백이 있어 itertuples 는 이름을 바꿔버린다
+        for i, row in enumerate(result.to_dict("records"), start=1):
             self.tree.insert(
                 "", "end",
-                values=(i, row.name, row.symbol, f"{row.close:,.0f}",
-                        f"{row.chg_pct:+.2f}%", f"{row.score * 100:.0f}%"),
+                values=(i, row["name"], row["symbol"], f"{row['close']:,.0f}",
+                        f"{row['chg_pct']:+.2f}%", f"{row['score'] * 100:.0f}%",
+                        row.get("strategy", "")),
             )
-        self.status.set(f"{len(result)}종목을 찾았습니다. 위에 있을수록 조건에 가깝습니다.")
+        self.status.set(
+            f"{len(result)}종목을 찾았습니다. 적합도는 가장 잘 맞는 전략 기준입니다."
+        )
 
     def _warn_unscored(self, result) -> None:
         """모든 종목에서 0점인 조건 = 그 데이터를 아직 받지 않았다는 뜻."""

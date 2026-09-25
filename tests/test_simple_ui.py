@@ -108,8 +108,10 @@ def test_flow_and_fundamental_needs_are_reported(app, monkeypatch):
 
 
 def test_result_table_has_no_condition_columns(app):
-    """조건 점수를 열로 보여주면 초보자에게는 잡음이다."""
-    assert app.tree["columns"] == ("순위", "종목명", "종목코드", "현재가", "등락", "적합도")
+    """조건 점수를 열로 보여주면 초보자에게는 잡음이다. 대신 맞는 전략만 알려준다."""
+    assert app.tree["columns"] == (
+        "순위", "종목명", "종목코드", "현재가", "등락", "적합도", "맞는 전략"
+    )
 
 
 # --------------------------------------------------------------------------- 진행 표시
@@ -215,7 +217,7 @@ def test_unscored_conditions_are_reported_after_a_search(app):
     app.checked["가짜.yaml"] = __import__("tkinter").BooleanVar(value=True)
 
     result = pd.DataFrame({
-        "symbol": ["A"], "name": ["가"], "score": [0.4], "matched": [0],
+        "symbol": ["A"], "name": ["가"], "score": [0.4], "strategy": ["가짜"],
         "close": [1000.0], "chg_pct": [0.0],
         "s_revenue_growth": [0.0], "s_above_ma": [0.8],
     })

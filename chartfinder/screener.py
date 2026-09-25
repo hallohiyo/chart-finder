@@ -89,6 +89,98 @@ def combine(scores: Mapping[str, float], specs: Iterable[ConditionSpec]) -> floa
     return sum(scores.get(spec.key, 0.0) * spec.weight for spec in specs) / total
 
 
+def screen_multi(
+    market: str,
+    strategies: Mapping[str, list[ConditionSpec]],
+    tickers: list[Ticker] | None = None,
+    universe: str = "all",
+    top: int | None = None,
+    min_score: float = 0.0,
+    progress: ProgressFn | None = None,
+) -> pd.DataFrame:
+    """전략마다 따로 채점하고, 가장 잘 맞는 전략의 점수로 순위를 매긴다.
+
+    여러 전략을 하나로 평균내면 서로 반대인 조건(신고가 근접 ↔ 신저가 근접)이
+    섞여 어느 쪽도 만족하지 못하는 종목이 상위에 온다. 전략별로 따로 채점하면
+    "이 종목은 눌림목 92%" 처럼 왜 뽑혔는지도 분명해진다.
+    """
+    if not strategies:
+        raise ValueError("전략이 하나 이상 필요합니다.")
+
+    if tickers is None:
+        tickers = cache.get_tickers(market, universe)
+    names = {t.symbol: t.name for t in tickers}
+
+    all_specs = [spec for specs in strategies.values() for spec in specs]
+    needs_fundamentals = any(
+        get_condition(spec.key).category == FUNDAMENTAL_CATEGORY for spec in all_specs
+    )
+
+    rows: list[dict[str, Any]] = []
+    for i, ticker in enumerate(tickers, start=1):
+        if progress:
+            progress(i, len(tickers))
+        df = cache.load(market, ticker.symbol)
+        if df is None or df.empty:
+            continue
+
+        fundamentals = (
+            cache.load_fundamentals(market, ticker.symbol) if needs_fundamentals else None
+        )
+        ctx = Ctx(df, fundamentals)
+        # 조건 점수는 전략끼리 공유한다 (같은 조건을 두 번 계산하지 않도록)
+        cache_by_key: dict[tuple, float] = {}
+
+        per_strategy: dict[str, float] = {}
+        for label, specs in strategies.items():
+            scores = {}
+            for spec in specs:
+                key = (spec.key, tuple(sorted(spec.params.items())))
+                if key not in cache_by_key:
+                    cache_by_key[key] = get_condition(spec.key).score(ctx, spec.params)
+                scores[spec.key] = cache_by_key[key]
+            per_strategy[label] = combine(scores, specs)
+
+        # 점수가 같으면 조건이 많은(까다로운) 전략 이름을 붙인다. 더 많은 정보다.
+        best_label = max(
+            per_strategy, key=lambda label: (per_strategy[label], len(strategies[label]))
+        )
+        best = per_strategy[best_label]
+        if best < min_score:
+            continue
+
+        # 조건이 적은 전략은 만점이 쉬워 동점이 쏟아진다. 동점일 때는 다른
+        # 전략에도 두루 맞는 종목을 앞세운다.
+        overall = sum(per_strategy.values()) / len(per_strategy)
+
+        close = float(df["close"].iloc[-1])
+        prev = float(df["close"].iloc[-2]) if len(df) > 1 else close
+        row = {
+            "symbol": ticker.symbol,
+            "name": names.get(ticker.symbol, ticker.symbol),
+            "score": round(best, 4),
+            "strategy": best_label,
+            "close": close,
+            "chg_pct": round((close / prev - 1.0) * 100.0, 2) if prev else 0.0,
+            "date": df.index[-1].date(),
+            "overall": round(overall, 4),
+        }
+        row.update({f"p_{label}": round(value, 3) for label, value in per_strategy.items()})
+        rows.append(row)
+
+    columns = [
+        "symbol", "name", "score", "strategy", "close", "chg_pct", "date", "overall"
+    ] + [f"p_{label}" for label in strategies]
+    if not rows:
+        return pd.DataFrame(columns=columns)
+
+    result = pd.DataFrame(rows)[columns]
+    result = result.sort_values(
+        ["score", "overall", "chg_pct"], ascending=[False, False, False]
+    ).reset_index(drop=True)
+    return result.head(top) if top else result
+
+
 def screen(
     market: str,
     specs: list[ConditionSpec],

@@ -6,9 +6,6 @@ requires: [flows]
 order: 40
 conditions:
   # 1. 볼린저 — 하단 지지, 이탈 후 밴드 복귀
-  - key: bb_lower_touch
-    weight: 1.0
-    params: {period: 20, mult: 2.0}
   - key: bb_lower_recovery
     weight: 1.5
     params: {period: 20, mult: 2.0, within: 5}

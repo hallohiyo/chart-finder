@@ -64,3 +64,107 @@ def test_unscored_conditions_handles_empty_results():
 
     assert unscored_conditions(pd.DataFrame(), [ConditionSpec("above_ma")]) == []
     assert unscored_conditions(None, [ConditionSpec("above_ma")]) == []
+
+
+# --------------------------------------------------------------------------- 전략별 채점
+
+
+def _demo_setup(tmp_path, monkeypatch, count=6):
+    monkeypatch.setenv("CHARTFINDER_HOME", str(tmp_path))
+    from chartfinder import cache
+    from chartfinder.datasource import get_source
+
+    source = get_source("demo")
+    tickers = source.list_tickers()[:count]
+    cache.update("demo", symbols=[t.symbol for t in tickers], years=2)
+    return tickers
+
+
+def test_screen_multi_scores_each_strategy_separately(tmp_path, monkeypatch):
+    from chartfinder.screener import screen_multi
+
+    tickers = _demo_setup(tmp_path, monkeypatch)
+    result = screen_multi(
+        "demo",
+        {"위": [ConditionSpec("above_ma")], "아래": [ConditionSpec("near_low")]},
+        tickers=tickers,
+    )
+    assert {"p_위", "p_아래", "strategy", "overall"} <= set(result.columns)
+    assert result["score"].between(0, 1).all()
+
+
+def test_headline_score_is_the_best_strategy_not_the_average(tmp_path, monkeypatch):
+    """서로 반대인 전략을 평균내면 어느 쪽도 만족 못 하는 종목이 상위에 온다."""
+    from chartfinder.screener import screen_multi
+
+    tickers = _demo_setup(tmp_path, monkeypatch)
+    result = screen_multi(
+        "demo",
+        {"고점": [ConditionSpec("near_high")], "저점": [ConditionSpec("near_low")]},
+        tickers=tickers,
+    )
+    for row in result.to_dict("records"):
+        assert row["score"] == pytest.approx(max(row["p_고점"], row["p_저점"]), abs=1e-3)
+
+
+def test_strategy_label_prefers_the_harder_strategy_on_a_tie(tmp_path, monkeypatch):
+    from chartfinder.screener import screen_multi
+
+    tickers = _demo_setup(tmp_path, monkeypatch)
+    result = screen_multi(
+        "demo",
+        {
+            "쉬움": [ConditionSpec("price_range", {"low": 0, "high": 1e9})],
+            "어려움": [
+                ConditionSpec("price_range", {"low": 0, "high": 1e9}),
+                ConditionSpec("price_range", {"low": 0, "high": 1e9}),
+            ],
+        },
+        tickers=tickers,
+    )
+    assert (result["strategy"] == "어려움").all()
+
+
+def test_screen_multi_ranks_by_score_then_all_round_fit(tmp_path, monkeypatch):
+    from chartfinder.screener import screen_multi
+
+    tickers = _demo_setup(tmp_path, monkeypatch, count=12)
+    result = screen_multi(
+        "demo",
+        {"A": [ConditionSpec("above_ma")], "B": [ConditionSpec("near_low")],
+         "C": [ConditionSpec("volume_surge")]},
+        tickers=tickers,
+    )
+    pairs = list(zip(result["score"], result["overall"]))
+    assert pairs == sorted(pairs, key=lambda p: (-p[0], -p[1]))
+
+
+def test_screen_multi_requires_at_least_one_strategy(tmp_path, monkeypatch):
+    from chartfinder.screener import screen_multi
+
+    tickers = _demo_setup(tmp_path, monkeypatch, count=2)
+    with pytest.raises(ValueError):
+        screen_multi("demo", {}, tickers=tickers)
+
+
+def test_shared_conditions_are_computed_once(tmp_path, monkeypatch):
+    """같은 조건이 여러 전략에 있어도 종목당 한 번만 계산한다."""
+    import dataclasses
+
+    from chartfinder.conditions import base
+    from chartfinder.screener import screen_multi
+
+    tickers = _demo_setup(tmp_path, monkeypatch, count=3)
+    calls = []
+    original = base._REGISTRY["above_ma"]
+    counted = dataclasses.replace(
+        original, fn=lambda ctx, **kwargs: calls.append(1) or original.fn(ctx, **kwargs)
+    )
+    monkeypatch.setitem(base._REGISTRY, "above_ma", counted)
+    screen_multi(
+        "demo",
+        {"A": [ConditionSpec("above_ma")], "B": [ConditionSpec("above_ma")],
+         "C": [ConditionSpec("above_ma")]},
+        tickers=tickers,
+    )
+    assert len(calls) == len(tickers)

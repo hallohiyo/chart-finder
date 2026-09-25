@@ -167,19 +167,6 @@ def rsi_overbought(ctx: Ctx, period: int, threshold: float) -> float:
 
 
 @condition(
-    "rsi_range", "RSI 구간", MOMENTUM,
-    params=(
-        _p("period", "RSI 기간", default=14, min=2, max=60),
-        _p("low", "하한", "float", default=40.0, min=0.0, max=100.0, step=1.0),
-        _p("high", "상한", "float", default=60.0, min=0.0, max=100.0, step=1.0),
-    ),
-    description="RSI가 지정 구간 안.",
-)
-def rsi_range(ctx: Ctx, period: int, low: float, high: float) -> float:
-    return soft_between(ctx.last(ctx.rsi(period)), low, high, tol=5.0)
-
-
-@condition(
     "macd_cross_up", "MACD 골든크로스", MOMENTUM,
     params=(
         _p("fast", "단기", default=12, min=2, max=60),
@@ -299,10 +286,10 @@ def bb_squeeze(ctx: Ctx, period: int, max_width: float) -> float:
     "atr_range", "변동성(ATR) 구간", VOLATILITY,
     params=(
         _p("period", "ATR 기간", default=14, min=2, max=60),
-        _p("low", "하한 (%)", "float", default=1.0, min=0.0, max=30.0, step=0.1),
-        _p("high", "상한 (%)", "float", default=5.0, min=0.1, max=50.0, step=0.1),
+        _p("low", "하한 (%)", "float", default=2.0, min=0.0, max=30.0, step=0.1),
+        _p("high", "상한 (%)", "float", default=6.0, min=0.1, max=50.0, step=0.1),
     ),
-    description="주가 대비 ATR 비율이 지정 구간 안.",
+    description="주가 대비 ATR 비율이 지정 구간 안. 너무 둔하지도 과하지도 않은 변동성을 고른다.",
 )
 def atr_range(ctx: Ctx, period: int, low: float, high: float) -> float:
     atr_value, close = ctx.last(ctx.atr(period)), ctx.last(ctx.close)
@@ -408,10 +395,10 @@ def drawdown_range(ctx: Ctx, period: int, low: float, high: float) -> float:
 @condition(
     "price_range", "주가 구간", FILTER,
     params=(
-        _p("low", "하한", "float", default=0.0, min=0.0, max=1e7, step=100.0),
-        _p("high", "상한", "float", default=1e7, min=0.0, max=1e9, step=100.0),
+        _p("low", "하한", "float", default=1000.0, min=0.0, max=1e7, step=100.0),
+        _p("high", "상한", "float", default=500_000.0, min=0.0, max=1e9, step=100.0),
     ),
-    description="현재가가 지정 구간 안.",
+    description="현재가가 지정 구간 안. 기본값은 동전주와 초고가주를 걸러낸다.",
     min_bars=1,
 )
 def price_range(ctx: Ctx, low: float, high: float) -> float:
@@ -506,21 +493,6 @@ def gap_up(ctx: Ctx, min_gap: float, within: int) -> float:
     gap_pct = (ctx.df["open"] / prev_high - 1.0) * 100.0
     return _recency_score((gap_pct >= min_gap).fillna(False), within)
 
-
-@condition(
-    "near_price", "특정 가격 근접", POSITION,
-    params=(
-        _p("target", "목표가", "float", default=0.0, min=0.0, max=1e9, step=100.0),
-        _p("tol_pct", "허용 오차 (%)", "float", default=3.0, min=0.1, max=30.0, step=0.5),
-    ),
-    description="현재가가 목표가에 근접.",
-    min_bars=1,
-)
-def near_price(ctx: Ctx, target: float, tol_pct: float) -> float:
-    close = ctx.last(ctx.close)
-    if close is None or target <= 0:
-        return 0.0
-    return soft_near((close / target - 1.0) * 100.0, 0.0, tol=tol_pct)
 
 
 # --------------------------------------------------------------------------- 반등 확인 신호
