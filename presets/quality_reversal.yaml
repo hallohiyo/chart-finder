@@ -9,12 +9,12 @@ conditions:
   # 1. 최근 4년 매출액이 해마다 증가
   - key: revenue_growth
     weight: 2.0
-    params: {years: 4, min_growth: 0.0}
+    params: {years: 3, min_growth: 0.0}
 
   # 2. 영업이익도 해마다 증가
   - key: operating_income_growth
     weight: 2.0
-    params: {years: 4, min_growth: 0.0}
+    params: {years: 3, min_growth: 0.0}
 
   # 3. 영업이익률 양호 (최근 3년 평균 8% 이상)
   - key: operating_margin

@@ -1,19 +1,19 @@
 name: 재무 우량주 — 꾸준히 돈 버는 회사
 market: kr
 universe: all
-description: 매출·영업이익 4년 연속 증가, 영업이익률 8%↑, 부채비율 100%↓, ROE 10%↑.
+description: 매출·영업이익 3년 연속 증가, 영업이익률 8%↑, 부채비율 100%↓, ROE 10%↑.
 requires: [fundamentals]
 order: 50
 conditions:
   # 1. 최근 4년 매출액이 해마다 증가
   - key: revenue_growth
     weight: 2.0
-    params: {years: 4, min_growth: 0.0}
+    params: {years: 3, min_growth: 0.0}
 
   # 2. 영업이익도 해마다 증가
   - key: operating_income_growth
     weight: 2.0
-    params: {years: 4, min_growth: 0.0}
+    params: {years: 3, min_growth: 0.0}
 
   # 3. 영업이익률 양호 (최근 3년 평균 8% 이상)
   - key: operating_margin

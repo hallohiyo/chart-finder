@@ -228,3 +228,27 @@ def test_screen_reads_fundamentals_only_when_needed(demo_home):
 
     chart_only = screen("demo", [ConditionSpec("above_ma")], tickers=tickers)
     assert not chart_only.empty
+
+
+def test_growth_conditions_work_with_the_years_the_source_actually_gives():
+    """네이버 연간 실적은 3개 연도뿐이다. 기본값이 그보다 크면 늘 0점이 된다."""
+    from chartfinder.datasource import naver_api
+
+    naver_years = 3  # doctor 로 확인한 실제 응답 (2023, 2024, 2025)
+    ctx = Ctx(make_df([100.0] * 300), _fundamentals(revenue=[100, 110, 120],
+                                                    operating_income=[10, 12, 15]))
+    for key in ("revenue_growth", "operating_income_growth"):
+        condition = get(key)
+        assert condition.defaults()["years"] <= naver_years, key
+        assert condition.score(ctx) == 1.0, key
+    assert naver_api  # 출처를 명시하기 위한 참조
+
+
+def test_shipped_fundamental_presets_do_not_ask_for_more_years_than_available():
+    from chartfinder.presets import load_all
+
+    for path, preset in load_all("presets"):
+        for spec in preset.conditions:
+            if spec.key in ("revenue_growth", "operating_income_growth"):
+                years = get(spec.key).resolve(spec.params)["years"]
+                assert years <= 3, f"{path.name}: {spec.key} years={years}"

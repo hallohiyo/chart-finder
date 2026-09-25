@@ -818,7 +818,9 @@ def _rising_ratio(series, years: int, min_growth: float) -> float:
 @condition(
     "revenue_growth", "매출액 증가", FUNDAMENTAL,
     params=(
-        _p("years", "확인 연수", default=4, min=2, max=10),
+        # 네이버가 주는 연간 실적은 3개 연도뿐이다. 4를 기본값으로 두면
+        # 데이터가 모자라 늘 0점이 나온다.
+        _p("years", "확인 연수", default=3, min=2, max=10),
         _p("min_growth", "연간 최소 증가율 (%)", "float", default=0.0, min=-50.0, max=100.0, step=1.0),
     ),
     description="최근 N년 매출액이 해마다 늘었는지. 일부 해만 늘면 그 비율만큼 부분점수.",
@@ -831,7 +833,7 @@ def revenue_growth(ctx: Ctx, years: int, min_growth: float) -> float:
 @condition(
     "operating_income_growth", "영업이익 증가", FUNDAMENTAL,
     params=(
-        _p("years", "확인 연수", default=4, min=2, max=10),
+        _p("years", "확인 연수", default=3, min=2, max=10),
         _p("min_growth", "연간 최소 증가율 (%)", "float", default=0.0, min=-50.0, max=100.0, step=1.0),
     ),
     description="최근 N년 영업이익이 해마다 늘었는지.",
