@@ -22,6 +22,7 @@ import numpy as np
 import pandas as pd
 
 from . import cache
+from .conditions import Ctx, get as get_condition
 from .screener import ConditionSpec, combine, score_one
 
 #: 사업보고서 제출 시한 (결산 후 90일). 이 전에는 그 해 재무를 몰랐다고 본다.
@@ -198,6 +199,65 @@ def trading_dates(df: pd.DataFrame, count: int, every: int, horizon: int) -> lis
 
 
 # --------------------------------------------------------------------------- 실행
+
+
+def run_multi(
+    market: str,
+    strategies: dict[str, list[ConditionSpec]],
+    tickers: Iterable,
+    dates: list[date],
+    horizon: int = 20,
+    top: int = 30,
+    progress: ProgressFn | None = None,
+) -> dict[str, Backtest]:
+    """여러 전략을 한 번에 검증한다.
+
+    전략마다 따로 돌리면 같은 조건을 여러 번 계산하게 된다. 한 번 훑으면서
+    조건 점수를 공유하면 전략 수에 관계없이 비용이 거의 늘지 않는다.
+    """
+    tickers = list(tickers)
+    records: dict[str, list[dict]] = {name: [] for name in strategies}
+
+    for index, ticker in enumerate(tickers, start=1):
+        if progress:
+            progress(index, len(tickers))
+
+        df = cache.load(market, ticker.symbol)
+        if df is None or len(df) < MIN_BARS + horizon:
+            continue
+        fundamentals = cache.load_fundamentals(market, ticker.symbol)
+
+        for asof in dates:
+            position = _position(df, asof)
+            if position is None or position < MIN_BARS:
+                continue
+            gain = forward_return(df, position, horizon)
+            if gain is None:
+                continue
+
+            window = df.iloc[: position + 1]
+            ctx = Ctx(window, fundamentals_as_of(fundamentals, asof))
+            computed: dict[tuple, float] = {}
+
+            for name, specs in strategies.items():
+                scores = {}
+                for spec in specs:
+                    key = (spec.key, tuple(sorted(spec.params.items())))
+                    if key not in computed:
+                        computed[key] = get_condition(spec.key).score(ctx, spec.params)
+                    scores[spec.key] = computed[key]
+                records[name].append({
+                    "asof": asof,
+                    "symbol": ticker.symbol,
+                    "name": ticker.name,
+                    "score": combine(scores, specs),
+                    "forward_return": gain,
+                })
+
+    return {
+        name: Backtest(rows=pd.DataFrame(rows), horizon=horizon, top=top)
+        for name, rows in records.items()
+    }
 
 
 def run(

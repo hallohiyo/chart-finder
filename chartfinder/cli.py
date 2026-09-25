@@ -15,6 +15,9 @@ from .conditions import all_conditions, by_category, get as get_condition
 from .datasource import MARKETS, default_universe, universes
 from .screener import ConditionSpec, screen, unscored_conditions
 
+#: 프리셋 폴더 (--all 이 여기를 훑는다)
+PRESET_DIR = Path("presets")
+
 app = typer.Typer(
     add_completion=False,
     help="차트 조건에 가장 근접한 종목을 찾아주는 스크리너 (한국/미국 시장)",
@@ -567,6 +570,9 @@ def backtest(
     dates: int = typer.Option(10, "--dates", "-d", help="기준일 개수"),
     every: int = typer.Option(10, "--every", help="기준일 간격 (영업일)"),
     top: int = typer.Option(30, "--top", "-n", help="상위 몇 종목을 뽑아 볼지"),
+    all_presets: bool = typer.Option(
+        False, "--all", help="presets 폴더의 모든 전략을 한 번에 비교한다",
+    ),
     limit: Optional[int] = typer.Option(None, "--limit", help="앞에서 N종목만 (빠른 확인용)"),
 ) -> None:
     """과거 시점에서 채점하고 이후 수익률을 확인한다.
@@ -576,7 +582,19 @@ def backtest(
     """
     from . import backtest as bt
 
-    specs, market, universe = _resolve_specs(cond, preset, market, universe)
+    if all_presets:
+        loaded = presets_mod.load_all(PRESET_DIR)
+        if not loaded:
+            console.print("[red]presets 폴더에 전략이 없습니다.[/]")
+            raise typer.Exit(code=1)
+        strategies = {p.name.split(" — ")[0]: p.conditions for _, p in loaded}
+        market = market or "kr"
+        universe = _resolve_universe(market, universe)
+        specs = presets_mod.merge([p for _, p in loaded])
+    else:
+        strategies = None
+        specs, market, universe = _resolve_specs(cond, preset, market, universe)
+
     tickers = cache.get_tickers(market, universe)
     if limit:
         tickers = tickers[:limit]
@@ -597,8 +615,9 @@ def backtest(
         )
         raise typer.Exit(code=1)
 
+    what = f"전략 {len(strategies)}개" if strategies else f"조건 {len(specs)}개"
     console.print(
-        f"[bold]{market.upper()}/{universe}[/] {len(tickers)}종목 · 조건 {len(specs)}개 · "
+        f"[bold]{market.upper()}/{universe}[/] {len(tickers)}종목 · {what} · "
         f"기준일 {len(asof_dates)}개 ({asof_dates[0]} ~ {asof_dates[-1]}) · "
         f"이후 {horizon}영업일 · 상위 {top}종목"
     )
@@ -614,16 +633,78 @@ def backtest(
         console=console, transient=True, redirect_stdout=False, redirect_stderr=False,
     ) as bar:
         task = bar.add_task("backtest", total=max(len(tickers), 1))
-        result = bt.run(
-            market, specs, tickers, asof_dates, horizon=horizon, top=top,
-            progress=lambda done, total: bar.update(task, completed=done, total=max(total, 1)),
+        on_progress = lambda done, total: bar.update(  # noqa: E731
+            task, completed=done, total=max(total, 1)
         )
+        if strategies:
+            results = bt.run_multi(
+                market, strategies, tickers, asof_dates,
+                horizon=horizon, top=top, progress=on_progress,
+            )
+        else:
+            result = bt.run(
+                market, specs, tickers, asof_dates,
+                horizon=horizon, top=top, progress=on_progress,
+            )
+
+    if strategies:
+        _print_comparison(results)
+        return
 
     if result.rows.empty:
         console.print("[yellow]표본이 없습니다.[/] 기간이 짧거나 캐시가 부족합니다.")
         raise typer.Exit(code=0)
 
     _print_backtest(result)
+
+
+def _print_comparison(results: dict) -> None:
+    """전략별 성적을 한 표로. t값 기준으로 줄 세운다."""
+    rows = []
+    for name, result in results.items():
+        if result.rows.empty:
+            continue
+        summary = result.summary()
+        rows.append({
+            "전략": name,
+            "초과": summary["평균초과수익"],
+            "초과t": summary["초과t값"],
+            "IC": summary["평균IC"],
+            "IC t": summary["t값"],
+            "초과승률": summary["초과승률"],
+        })
+    if not rows:
+        console.print("[yellow]표본이 없습니다.[/] 기간이 짧거나 캐시가 부족합니다.")
+        return
+
+    rows.sort(key=lambda r: (r["IC t"] if r["IC t"] == r["IC t"] else -99), reverse=True)
+
+    table = Table(title="전략 비교 (|t| ≥ 2 라야 우연이 아니라고 볼 수 있다)", title_justify="left")
+    for column in ("전략", "초과수익", "초과 t", "IC", "IC t", "초과승률", "판정"):
+        table.add_column(column, justify="left" if column in ("전략", "판정") else "right")
+
+    for row in rows:
+        t = row["IC t"]
+        if t != t:
+            verdict = "[dim]판단 불가[/]"
+        elif abs(t) < 2:
+            verdict = "[yellow]구분 안 됨[/]"
+        elif t > 0:
+            verdict = "[green]신호 있음[/]"
+        else:
+            verdict = "[red]역효과[/]"
+        excess = f"{row['초과']:+.2f}%"
+        table.add_row(
+            row["전략"],
+            f"[green]{excess}[/]" if row["초과"] > 0 else f"[red]{excess}[/]",
+            f"{row['초과t']:+.2f}", f"{row['IC']:+.3f}", f"{t:+.2f}",
+            f"{row['초과승률']:.0f}%", verdict,
+        )
+    console.print(table)
+    console.print(
+        "[dim]독립 표본은 기준일 수입니다. 기준일이 적으면 t값이 커지기 어렵습니다.\n"
+        "매매 비용·슬리피지 미반영, 상장폐지 종목 누락으로 실제보다 낙관적일 수 있습니다.[/]"
+    )
 
 
 def _print_backtest(result) -> None:

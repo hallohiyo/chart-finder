@@ -60,8 +60,22 @@ chartfinder status -m kr
 과거 시점까지의 데이터만 보고 채점한 뒤, 그 뒤 N영업일 수익률을 확인한다.
 
 ```bash
+# 전략 하나
 chartfinder backtest -p presets/oversold_rebound.yaml -m kr -u kospi \
-  --horizon 20 --dates 10 --every 10 --top 30
+  --horizon 20 --dates 40 --every 20 --top 30
+
+# 전략 전부를 한 번에 비교 (조건 계산을 공유하므로 8번 따로 돌리는 것보다 훨씬 빠르다)
+chartfinder backtest --all -m kr -u kospi --dates 40 --every 20
+```
+
+`--all` 은 이런 표를 낸다.
+
+```
+전략 비교 (|t| ≥ 2 라야 우연이 아니라고 볼 수 있다)
+ 전략            초과수익  초과 t      IC   IC t  초과승률  판정
+ 신고가 근접       +0.86%  +4.90  +0.113  +5.99      78%  신호 있음
+ 눌림목           -0.25%  -1.24  +0.035  +1.70      40%  구분 안 됨
+ 과매도 반등      -0.99%  -6.14  -0.110  -6.03      20%  역효과
 ```
 
 보는 것은 세 가지다.

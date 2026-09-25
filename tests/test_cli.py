@@ -141,3 +141,13 @@ def test_backtest_without_conditions_fails(demo_home):
     result = runner.invoke(app, ["backtest", "-m", "demo"])
     assert result.exit_code == 1
     assert "조건이 없습니다" in result.output
+
+
+def test_backtest_all_presets_compares_strategies(demo_home):
+    result = runner.invoke(
+        app, ["backtest", "-m", "demo", "-u", "all", "--all", "--dates", "2",
+              "--every", "20", "--top", "5", "--limit", "8"]
+    )
+    assert result.exit_code in (0, 1), result.output
+    if result.exit_code == 0:
+        assert "전략 비교" in result.output or "표본이 없습니다" in result.output

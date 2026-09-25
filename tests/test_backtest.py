@@ -278,3 +278,67 @@ def test_summary_includes_excess_t_value():
     summary = result.summary()
     assert "초과t값" in summary
     assert summary["초과t값"] > 0
+
+
+# --------------------------------------------------------------------------- 여러 전략 한 번에
+
+
+def test_run_multi_matches_running_each_strategy_separately(monkeypatch):
+    """한 번에 돌린 결과가 따로 돌린 것과 같아야 한다."""
+    frames = _rigged_frames(count=12)
+    _install(monkeypatch, frames)
+    tickers = [_Ticker(symbol) for symbol in frames]
+    df = next(iter(frames.values()))
+    dates = [df.index[-26].date(), df.index[-40].date()]
+
+    strategies = {
+        "A": [ConditionSpec("above_ma")],
+        "B": [ConditionSpec("near_low"), ConditionSpec("volume_surge")],
+    }
+    together = bt.run_multi("demo", strategies, tickers, dates, horizon=20)
+
+    for name, specs in strategies.items():
+        alone = bt.run("demo", specs, tickers, dates, horizon=20)
+        merged = together[name].rows.sort_values(["asof", "symbol"]).reset_index(drop=True)
+        single = alone.rows.sort_values(["asof", "symbol"]).reset_index(drop=True)
+        pd.testing.assert_frame_equal(merged, single)
+
+
+def test_run_multi_shares_condition_work(monkeypatch):
+    """같은 조건이 여러 전략에 있어도 (종목, 기준일)당 한 번만 계산한다."""
+    import dataclasses
+
+    from chartfinder.conditions import base
+
+    frames = _rigged_frames(count=6)
+    _install(monkeypatch, frames)
+    tickers = [_Ticker(symbol) for symbol in frames]
+    dates = [next(iter(frames.values())).index[-26].date()]
+
+    calls = []
+    original = base._REGISTRY["above_ma"]
+    monkeypatch.setitem(
+        base._REGISTRY, "above_ma",
+        dataclasses.replace(
+            original, fn=lambda ctx, **kw: calls.append(1) or original.fn(ctx, **kw)
+        ),
+    )
+
+    bt.run_multi(
+        "demo",
+        {"A": [ConditionSpec("above_ma")], "B": [ConditionSpec("above_ma")],
+         "C": [ConditionSpec("above_ma")]},
+        tickers, dates, horizon=20,
+    )
+    assert len(calls) == len(tickers)
+
+
+def test_run_multi_keeps_strategies_with_no_samples(monkeypatch):
+    frames = _rigged_frames(count=4)
+    _install(monkeypatch, frames)
+    results = bt.run_multi(
+        "demo", {"A": [ConditionSpec("above_ma")]},
+        [_Ticker(s) for s in frames], [], horizon=20,
+    )
+    assert set(results) == {"A"}
+    assert results["A"].rows.empty
