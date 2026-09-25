@@ -386,3 +386,57 @@ def test_live_conditions_are_not_flagged(monkeypatch):
 
     result = bt.run("demo", [ConditionSpec("above_ma")], tickers, [asof], horizon=20)
     assert result.dead_conditions == []
+
+
+# --------------------------------------------------------------------------- 채점 불가 처리
+
+
+def _flat_and_varied(per_date: int = 40) -> pd.DataFrame:
+    """한 날은 전 종목 동점, 다른 날은 점수가 갈리는 표본."""
+    flat = pd.DataFrame({
+        "asof": date(2026, 1, 5),
+        "symbol": [f"{i:06d}" for i in range(per_date)],
+        "name": [f"S{i}" for i in range(per_date)],
+        "score": [0.0] * per_date,
+        # 종목코드 순서와 수익이 얽혀 있다 (앞 번호일수록 좋음)
+        "forward_return": np.linspace(20, -20, per_date),
+    })
+    varied = pd.DataFrame({
+        "asof": date(2026, 2, 5),
+        "symbol": [f"{i:06d}" for i in range(per_date)],
+        "name": [f"S{i}" for i in range(per_date)],
+        "score": np.linspace(0, 1, per_date),
+        "forward_return": np.linspace(-10, 10, per_date),
+    })
+    return pd.concat([flat, varied], ignore_index=True)
+
+
+def test_dates_where_every_score_is_equal_are_marked_unscorable():
+    result = bt.Backtest(rows=_flat_and_varied(), horizon=20, top=10)
+    table = result.by_date()
+
+    assert list(table["채점가능"]) == [False, True]
+    assert result.scorable_dates() == [date(2026, 2, 5)]
+
+
+def test_unscorable_dates_are_excluded_from_the_summary():
+    """전 종목 동점인 날의 '초과수익'은 종목코드 순서가 만든 허상이다."""
+    result = bt.Backtest(rows=_flat_and_varied(), horizon=20, top=10)
+    summary = result.summary()
+
+    assert summary["기준일수"] == 1
+    assert summary["채점불가일수"] == 1
+
+
+def test_ties_are_broken_randomly_not_by_symbol_order():
+    """동점을 종목코드 순으로 뽑으면 오래된 대형주가 계속 뽑힌다."""
+    result = bt.Backtest(rows=_flat_and_varied(per_date=200), horizon=20, top=20)
+    flat = result.by_date().iloc[0]
+
+    # 앞 번호만 뽑혔다면 수익이 +20 근처로 쏠린다
+    assert flat["상위평균"] < 15
+
+
+def test_score_buckets_ignore_unscorable_dates():
+    table = bt.Backtest(rows=_flat_and_varied(), horizon=20, top=10).by_score_bucket(bins=4)
+    assert len(table) == 4  # 동점인 날이 섞이면 구간이 무너진다

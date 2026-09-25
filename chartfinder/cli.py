@@ -741,6 +741,12 @@ def _print_backtest(result) -> None:
     for row in result.by_date().to_dict("records"):
         excess = f"{row['초과']:+.2f}%"
         ic = row.get("IC")
+        if not row.get("채점가능", True):
+            table.add_row(
+                str(row["asof"]), f"{row['종목수']:,}", "[dim]—[/]", f"{row['전체평균']:+.2f}%",
+                "[dim]채점 불가[/]", "[dim]—[/]", "[dim]—[/]",
+            )
+            continue
         table.add_row(
             str(row["asof"]), f"{row['종목수']:,}", f"{row['상위평균']:+.2f}%",
             f"{row['전체평균']:+.2f}%",
@@ -750,7 +756,18 @@ def _print_backtest(result) -> None:
         )
     console.print(table)
 
+    skipped = int(summary.get("채점불가일수", 0))
+    if skipped:
+        console.print(
+            f"[yellow]채점 불가 {skipped}개 기준일[/] — 전 종목이 같은 점수라 순위를 매길 수 "
+            "없었습니다 (그 시점에 해당 데이터가 없음). 통계에서 제외했습니다."
+        )
+
     buckets = result.by_score_bucket()
+    if buckets.empty:
+        console.print(
+            "[dim]점수 구간을 나눌 수 없습니다 — 같은 점수인 종목이 너무 많습니다.[/]"
+        )
     if not buckets.empty:
         bucket_table = Table(title="점수 구간별 (점수가 의미 있으면 아래로 갈수록 수익이 올라야 한다)",
                              title_justify="left")

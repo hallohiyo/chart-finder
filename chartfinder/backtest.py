@@ -33,6 +33,11 @@ MIN_BARS = 250
 ProgressFn = Callable[[int, int], None]
 
 
+def _seed(asof) -> int:
+    """기준일마다 고정된 난수 씨앗 (같은 입력이면 같은 결과가 나오도록)."""
+    return abs(hash(str(asof))) % (2**31)
+
+
 def _t_value(values: pd.Series) -> float:
     """평균이 0과 다른지의 t값.
 
@@ -76,13 +81,21 @@ class Backtest:
         return sorted(self.rows["asof"].unique()) if not self.rows.empty else []
 
     def by_date(self) -> pd.DataFrame:
-        """기준일마다 상위 N종목과 전체의 이후 수익률을 비교한다."""
+        """기준일마다 상위 N종목과 전체의 이후 수익률을 비교한다.
+
+        점수가 전 종목 동일한 날은 '채점 불가'로 표시하고 통계에서 뺀다.
+        그런 날 상위 N을 뽑으면 점수가 아니라 종목코드 순서로 뽑히는데,
+        코스피에서 앞 번호는 오래된 대형주라 결과가 한쪽으로 기운다.
+        """
         if self.rows.empty:
             return pd.DataFrame()
 
         records = []
         for asof, group in self.rows.groupby("asof"):
-            picks = group.nlargest(self.top, "score")
+            scorable = group["score"].nunique() > 1
+            # 동점은 무작위로 섞어 종목코드 순서가 개입하지 않게 한다
+            shuffled = group.sample(frac=1, random_state=_seed(asof))
+            picks = shuffled.nlargest(self.top, "score")
             records.append({
                 "asof": asof,
                 "종목수": len(group),
@@ -94,6 +107,7 @@ class Backtest:
                 "평균점수": picks["score"].mean(),
                 # 그날 하루 안에서 점수와 수익의 순위상관 (IC)
                 "IC": _spearman(group["score"], group["forward_return"]),
+                "채점가능": scorable,
             })
         return pd.DataFrame(records).sort_values("asof").reset_index(drop=True)
 
@@ -102,7 +116,11 @@ class Backtest:
         if self.rows.empty:
             return pd.DataFrame()
 
-        rows = self.rows.copy()
+        # 채점되지 않은 날(전 종목 동점)은 구간 나누기를 무너뜨린다
+        usable = set(self.scorable_dates())
+        rows = self.rows[self.rows["asof"].isin(usable)].copy()
+        if rows.empty:
+            return pd.DataFrame()
         try:
             rows["구간"] = pd.qcut(rows["score"], bins, duplicates="drop")
         except ValueError:
@@ -117,6 +135,13 @@ class Backtest:
         }).reset_index()
         table["구간"] = table["구간"].astype(str)
         return table
+
+    def scorable_dates(self) -> list:
+        """점수가 종목마다 갈린 기준일. 통계는 이 날들로만 낸다."""
+        table = self.by_date()
+        if table.empty or "채점가능" not in table:
+            return []
+        return list(table.loc[table["채점가능"], "asof"])
 
     def ic_stats(self) -> dict[str, float]:
         """기준일별 IC 의 평균과 t값.
@@ -144,10 +169,12 @@ class Backtest:
         if self.rows.empty:
             return {}
 
-        per_date = self.by_date()
+        table = self.by_date()
+        per_date = table[table["채점가능"]] if "채점가능" in table else table
         excess = per_date["초과"]
         return {
             "기준일수": len(per_date),
+            "채점불가일수": len(table) - len(per_date),
             "표본수": len(self.rows),
             "상위평균수익": per_date["상위평균"].mean(),
             "전체평균수익": per_date["전체평균"].mean(),
