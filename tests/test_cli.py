@@ -134,7 +134,7 @@ def test_backtest_runs_and_reports(demo_home):
     if result.exit_code == 1:
         assert "기준일" in result.output or "캐시" in result.output
     else:
-        assert "점수-수익 상관" in result.output
+        assert "IC" in result.output
 
 
 def test_backtest_without_conditions_fails(demo_home):

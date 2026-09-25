@@ -602,6 +602,11 @@ def backtest(
         f"기준일 {len(asof_dates)}개 ({asof_dates[0]} ~ {asof_dates[-1]}) · "
         f"이후 {horizon}영업일 · 상위 {top}종목"
     )
+    if every < horizon:
+        console.print(
+            f"[yellow]기준일 간격({every})이 관찰 기간({horizon})보다 짧아 구간이 겹칩니다.[/]"
+            f" 같은 국면을 여러 번 세는 셈이라 --every {horizon} 이상을 권합니다."
+        )
 
     with Progress(
         SpinnerColumn(), TextColumn("채점 중"), BarColumn(),
@@ -625,14 +630,17 @@ def _print_backtest(result) -> None:
     summary = result.summary()
 
     table = Table(title="기준일별", title_justify="left")
-    for column in ("기준일", "종목수", "상위평균", "전체평균", "초과", "상위승률"):
+    for column in ("기준일", "종목수", "상위평균", "전체평균", "초과", "상위승률", "IC"):
         table.add_column(column, justify="right" if column != "기준일" else "left")
-    for row in result.by_date().itertuples(index=False):
-        excess = f"{row.초과:+.2f}%"
+    for row in result.by_date().to_dict("records"):
+        excess = f"{row['초과']:+.2f}%"
+        ic = row.get("IC")
         table.add_row(
-            str(row.asof), f"{row.종목수:,}", f"{row.상위평균:+.2f}%", f"{row.전체평균:+.2f}%",
-            f"[green]{excess}[/]" if row.초과 > 0 else f"[red]{excess}[/]",
-            f"{row.상위승률:.0f}%",
+            str(row["asof"]), f"{row['종목수']:,}", f"{row['상위평균']:+.2f}%",
+            f"{row['전체평균']:+.2f}%",
+            f"[green]{excess}[/]" if row["초과"] > 0 else f"[red]{excess}[/]",
+            f"{row['상위승률']:.0f}%",
+            "-" if ic is None or ic != ic else f"{ic:+.3f}",
         )
     console.print(table)
 
@@ -649,28 +657,28 @@ def _print_backtest(result) -> None:
             )
         console.print(bucket_table)
 
-    correlation = summary["점수-수익 상관"]
-    noise = result.noise_level()
-    if abs(correlation) < noise:
-        verdict = (
-            f"[yellow]잡음 범위(±{noise:.3f}) 안입니다 — 이 표본으로는 판단할 수 없습니다[/]"
-        )
-    elif correlation > 0:
-        verdict = "[green]점수가 높을수록 수익이 좋았습니다[/]"
-    else:
-        verdict = "[red]점수가 높을수록 오히려 나빴습니다[/]"
+    ic, t = summary["평균IC"], summary["t값"]
+    dates = int(summary["기준일수"])
 
-    excess = summary["평균초과수익"]
-    console.print(
-        f"\n기준일 {summary['기준일수']:.0f}개 · 표본 {summary['표본수']:,.0f}건\n"
-        f"상위 평균 {summary['상위평균수익']:+.2f}% · 전체 평균 {summary['전체평균수익']:+.2f}% · "
-        f"[bold]초과 {excess:+.2f}%[/] (초과한 기준일 비율 {summary['초과승률']:.0f}%)\n"
-        f"점수-수익 상관 {correlation:+.3f} → {verdict}"
-    )
-    if abs(correlation) >= noise and (correlation > 0) != (excess > 0):
-        console.print(
-            "[yellow]상관과 초과수익의 방향이 엇갈립니다.[/] 기준일을 늘려 다시 보세요."
+    if dates < 3 or t != t:  # NaN
+        verdict = "[yellow]기준일이 너무 적어 판단할 수 없습니다[/]"
+    elif abs(t) < 2:
+        verdict = (
+            f"[yellow]0과 구분되지 않습니다 (t={t:+.2f}) — 이 기간으로는 판단할 수 없습니다[/]"
         )
+    elif ic > 0:
+        verdict = f"[green]점수가 높을수록 수익이 좋았습니다 (t={t:+.2f})[/]"
+    else:
+        verdict = f"[red]점수가 높을수록 오히려 나빴습니다 (t={t:+.2f})[/]"
+
+    console.print(
+        f"\n기준일 {dates}개 · 표본 {summary['표본수']:,.0f}건 "
+        f"[dim](같은 날 종목들은 시장을 함께 타므로 독립 표본은 기준일 수에 가깝습니다)[/]\n"
+        f"상위 평균 {summary['상위평균수익']:+.2f}% · 전체 평균 {summary['전체평균수익']:+.2f}% · "
+        f"[bold]초과 {summary['평균초과수익']:+.2f}%[/] "
+        f"(초과한 기준일 {summary['초과승률']:.0f}% · t={summary['초과t값']:+.2f})\n"
+        f"기준일별 IC 평균 {ic:+.3f} (표준편차 {summary['IC표준편차']:.3f}) → {verdict}"
+    )
     console.print(
         "[dim]매매 비용·슬리피지는 반영하지 않았고, 상장폐지 종목이 빠져 있어 "
         "실제보다 낙관적일 수 있습니다.[/]"

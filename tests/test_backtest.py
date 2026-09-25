@@ -157,7 +157,7 @@ def test_backtest_detects_a_real_signal(monkeypatch):
     result = bt.run("demo", [ConditionSpec("above_ma")], tickers, [asof], horizon=20, top=10)
 
     summary = result.summary()
-    assert summary["점수-수익 상관"] > result.noise_level()
+    assert summary["평균IC"] > 0.3
     assert summary["평균초과수익"] > 0
 
 
@@ -176,7 +176,7 @@ def test_backtest_reports_no_signal_on_noise(monkeypatch):
         "demo", [ConditionSpec("above_ma")], [_Ticker(s) for s in frames], [asof],
         horizon=20, top=10,
     )
-    assert abs(result.summary()["점수-수익 상관"]) < 0.6  # 무작위에서 강한 신호가 나오면 이상하다
+    assert abs(result.summary()["평균IC"]) < 0.6  # 무작위에서 강한 신호가 나오면 이상하다
 
 
 # --------------------------------------------------------------------------- 집계
@@ -220,8 +220,61 @@ def test_empty_backtest_is_safe():
     assert empty.dates == []
 
 
-def test_noise_level_shrinks_with_sample_size():
-    small = bt.Backtest(rows=pd.DataFrame({"score": [0.0] * 100}), horizon=20, top=10)
-    large = bt.Backtest(rows=pd.DataFrame({"score": [0.0] * 10000}), horizon=20, top=10)
-    assert small.noise_level() > large.noise_level()
-    assert large.noise_level() == pytest.approx(0.02)
+def _rows_with_ic(ics: list[float], per_date: int = 60) -> pd.DataFrame:
+    """기준일마다 원하는 방향의 점수-수익 관계를 갖는 표본을 만든다."""
+    frames = []
+    for i, ic in enumerate(ics):
+        scores = np.linspace(0, 1, per_date)
+        returns = scores * 10 * ic + np.linspace(-1, 1, per_date) * 0.01
+        frames.append(pd.DataFrame({
+            "asof": date(2026, 1, 1) + timedelta(days=30 * i),
+            "symbol": [f"S{j}" for j in range(per_date)],
+            "name": [f"S{j}" for j in range(per_date)],
+            "score": scores,
+            "forward_return": returns,
+        }))
+    return pd.concat(frames, ignore_index=True)
+
+
+def test_ic_is_measured_per_date_not_pooled():
+    """같은 날 종목들은 독립이 아니다. 독립 단위는 기준일이다."""
+    result = bt.Backtest(rows=_rows_with_ic([1.0] * 6), horizon=20, top=10)
+    stats = result.ic_stats()
+
+    assert stats["기준일수"] == 6
+    assert stats["평균IC"] == pytest.approx(1.0, abs=0.01)
+    assert stats["t값"] > 2
+
+
+def test_mixed_signs_across_dates_give_a_weak_t_value():
+    """어떤 날은 맞고 어떤 날은 틀리면 신호로 볼 수 없다."""
+    result = bt.Backtest(rows=_rows_with_ic([1.0, -1.0, 1.0, -1.0, 0.5, -0.5]), horizon=20, top=10)
+    assert abs(result.ic_stats()["t값"]) < 2
+
+
+def test_ic_stats_need_at_least_two_dates():
+    result = bt.Backtest(rows=_rows_with_ic([1.0]), horizon=20, top=10)
+    stats = result.ic_stats()
+    assert stats["기준일수"] == 1
+    assert np.isnan(stats["t값"])
+
+
+def test_by_date_reports_ic_per_row():
+    result = bt.Backtest(rows=_rows_with_ic([1.0, -1.0]), horizon=20, top=10)
+    table = result.by_date()
+    assert "IC" in table.columns
+    assert table["IC"].iloc[0] > 0.9
+    assert table["IC"].iloc[1] < -0.9
+
+
+def test_spearman_handles_degenerate_input():
+    assert np.isnan(bt._spearman(pd.Series([1, 2]), pd.Series([1, 2])))  # 표본 부족
+    assert np.isnan(bt._spearman(pd.Series(range(10)), pd.Series([5] * 10)))  # 상수
+    assert bt._spearman(pd.Series(range(10)), pd.Series(range(10))) == pytest.approx(1.0)
+
+
+def test_summary_includes_excess_t_value():
+    result = bt.Backtest(rows=_rows_with_ic([1.0] * 5), horizon=20, top=10)
+    summary = result.summary()
+    assert "초과t값" in summary
+    assert summary["초과t값"] > 0

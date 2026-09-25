@@ -32,6 +32,34 @@ MIN_BARS = 250
 ProgressFn = Callable[[int, int], None]
 
 
+def _t_value(values: pd.Series) -> float:
+    """평균이 0과 다른지의 t값.
+
+    모든 값이 같으면 분산이 0이라 t를 낼 수 없는데, 그 평균이 0이 아니라면
+    흔들림 없이 한쪽으로 쏠린 것이므로 무한대로 본다 (표본이 적을 때 생긴다).
+    """
+    values = values.dropna()
+    if len(values) < 2:
+        return float("nan")
+    mean = float(values.mean())
+    std = float(values.std(ddof=1))
+    if std == 0:
+        return float("nan") if mean == 0 else float(np.inf if mean > 0 else -np.inf)
+    return mean / (std / np.sqrt(len(values)))
+
+
+def _spearman(left: pd.Series, right: pd.Series) -> float:
+    """순위상관. 표본이 적거나 한쪽이 상수면 계산할 수 없다.
+
+    pandas 의 Series.corr(method="spearman") 은 scipy 를 요구하므로,
+    순위로 바꿔 피어슨 상관을 낸다 (정의상 같은 값이다).
+    """
+    if len(left) < 5 or left.nunique() < 2 or right.nunique() < 2:
+        return float("nan")
+    value = left.rank().corr(right.rank())
+    return float(value) if value == value else float("nan")
+
+
 @dataclass
 class Backtest:
     """(기준일, 종목)별 점수와 이후 수익률."""
@@ -61,6 +89,8 @@ class Backtest:
                 "초과": picks["forward_return"].mean() - group["forward_return"].mean(),
                 "상위승률": float((picks["forward_return"] > 0).mean() * 100),
                 "평균점수": picks["score"].mean(),
+                # 그날 하루 안에서 점수와 수익의 순위상관 (IC)
+                "IC": _spearman(group["score"], group["forward_return"]),
             })
         return pd.DataFrame(records).sort_values("asof").reset_index(drop=True)
 
@@ -85,13 +115,26 @@ class Backtest:
         table["구간"] = table["구간"].astype(str)
         return table
 
-    def noise_level(self) -> float:
-        """이 표본 크기에서 상관계수가 우연히 나올 수 있는 범위.
+    def ic_stats(self) -> dict[str, float]:
+        """기준일별 IC 의 평균과 t값.
 
-        이보다 작은 상관은 신호가 아니라 잡음으로 본다 (대략 2 표준오차).
+        표본 수를 '종목 수 × 기준일 수' 로 세면 안 된다. 같은 날 종목들은
+        시장 전체 움직임을 함께 타므로 독립이 아니고, 그렇게 세면 실제보다
+        훨씬 정밀한 것처럼 보인다. 독립 단위는 기준일이므로 날짜별 IC 를
+        구해 그 평균이 0과 다른지를 본다.
         """
-        n = len(self.rows)
-        return 2.0 / np.sqrt(n) if n > 4 else 1.0
+        per_date = self.by_date()
+        ics = per_date["IC"].dropna() if "IC" in per_date else pd.Series(dtype=float)
+        if len(ics) < 2:
+            return {"평균IC": float(ics.mean()) if len(ics) else float("nan"),
+                    "IC표준편차": float("nan"), "t값": float("nan"), "기준일수": len(ics)}
+
+        return {
+            "평균IC": float(ics.mean()),
+            "IC표준편차": float(ics.std(ddof=1)),
+            "t값": _t_value(ics),
+            "기준일수": len(ics),
+        }
 
     def summary(self) -> dict[str, float]:
         """전체 요약. 점수-수익률 상관이 이 도구의 존재 이유다."""
@@ -99,15 +142,16 @@ class Backtest:
             return {}
 
         per_date = self.by_date()
-        correlation = self.rows[["score", "forward_return"]].corr(method="spearman")
+        excess = per_date["초과"]
         return {
             "기준일수": len(per_date),
             "표본수": len(self.rows),
             "상위평균수익": per_date["상위평균"].mean(),
             "전체평균수익": per_date["전체평균"].mean(),
-            "평균초과수익": per_date["초과"].mean(),
+            "평균초과수익": excess.mean(),
             "초과승률": float((per_date["초과"] > 0).mean() * 100),
-            "점수-수익 상관": float(correlation.loc["score", "forward_return"]),
+            "초과t값": _t_value(excess),
+            **self.ic_stats(),
         }
 
 
