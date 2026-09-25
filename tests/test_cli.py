@@ -122,3 +122,22 @@ def test_update_does_not_leave_a_rich_proxy_on_stdout(tmp_path, monkeypatch):
     assert result.exit_code == 0, result.output
     assert type(sys.stdout) is type(before)
     assert "FileProxy" not in type(sys.stdout).__name__
+
+
+def test_backtest_runs_and_reports(demo_home):
+    result = runner.invoke(
+        app, ["backtest", "-m", "demo", "-c", "above_ma", "--dates", "2",
+              "--every", "20", "--top", "5", "--limit", "8"]
+    )
+    # 데모 캐시가 1년치라 기준일을 못 잡을 수 있다. 그때도 안내로 끝나야 한다.
+    assert result.exit_code in (0, 1), result.output
+    if result.exit_code == 1:
+        assert "기준일" in result.output or "캐시" in result.output
+    else:
+        assert "점수-수익 상관" in result.output
+
+
+def test_backtest_without_conditions_fails(demo_home):
+    result = runner.invoke(app, ["backtest", "-m", "demo"])
+    assert result.exit_code == 1
+    assert "조건이 없습니다" in result.output

@@ -22,6 +22,28 @@ app = typer.Typer(
 console = Console()
 
 
+def _resolve_specs(
+    cond: list[str], preset: Optional[Path], market: Optional[str], universe: Optional[str]
+) -> tuple[list[ConditionSpec], str, str]:
+    """-c / --preset 을 조건 목록으로 풀고 시장·유니버스를 정한다."""
+    specs: list[ConditionSpec] = []
+    if preset:
+        loaded = presets_mod.load(preset)
+        specs = list(loaded.conditions)
+        market = market or loaded.market
+        universe = universe or loaded.universe
+        console.print(f"[dim]프리셋: {loaded.name}[/]")
+    specs += [ConditionSpec.parse(text) for text in cond]
+
+    if not specs:
+        console.print("[red]조건이 없습니다.[/] -c 또는 --preset 을 지정하세요. "
+                      "(목록: chartfinder conditions)")
+        raise typer.Exit(code=1)
+
+    market = market or "kr"
+    return specs, market, _resolve_universe(market, universe)
+
+
 def _resolve_universe(market: str, universe: str | None) -> str:
     """유니버스를 시장별 기본값으로 채우고, 잘못된 값이면 바로 알려준다."""
     allowed = universes(market)
@@ -361,22 +383,7 @@ def scan(
     detail: bool = typer.Option(False, "--detail", "-d", help="조건별 점수도 표시"),
 ) -> None:
     """조건에 가장 근접한 종목을 찾는다."""
-    specs: list[ConditionSpec] = []
-    if preset:
-        loaded = presets_mod.load(preset)
-        specs = list(loaded.conditions)
-        market = market or loaded.market
-        universe = universe or loaded.universe
-        console.print(f"[dim]프리셋: {loaded.name}[/]")
-    specs += [ConditionSpec.parse(text) for text in cond]
-
-    if not specs:
-        console.print("[red]조건이 없습니다.[/] -c 또는 --preset 을 지정하세요. "
-                      "(목록: chartfinder conditions)")
-        raise typer.Exit(code=1)
-
-    market = market or "kr"
-    universe = _resolve_universe(market, universe)
+    specs, market, universe = _resolve_specs(cond, preset, market, universe)
 
     tickers = cache.get_tickers(market, universe)
     console.print(
@@ -469,6 +476,126 @@ def _print_breakdown(result, score_cols: list[str]) -> None:
         if missed:
             console.print(f"     [dim]미달 {' · '.join(missed)}[/]")
 
+
+
+@app.command("backtest")
+def backtest(
+    cond: list[str] = typer.Option([], "--cond", "-c", help="조건 (scan 과 같은 문법)"),
+    preset: Optional[Path] = typer.Option(None, "--preset", "-p", help="프리셋 YAML"),
+    market: Optional[str] = typer.Option(None, "--market", "-m", help=f"시장 {MARKETS}"),
+    universe: Optional[str] = typer.Option(None, "--universe", "-u", help="유니버스"),
+    horizon: int = typer.Option(20, "--horizon", "-h", help="이후 수익률을 볼 영업일 수"),
+    dates: int = typer.Option(10, "--dates", "-d", help="기준일 개수"),
+    every: int = typer.Option(10, "--every", help="기준일 간격 (영업일)"),
+    top: int = typer.Option(30, "--top", "-n", help="상위 몇 종목을 뽑아 볼지"),
+    limit: Optional[int] = typer.Option(None, "--limit", help="앞에서 N종목만 (빠른 확인용)"),
+) -> None:
+    """과거 시점에서 채점하고 이후 수익률을 확인한다.
+
+    기준일까지의 데이터만 보고 점수를 매긴 뒤 그 뒤 수익률을 본다.
+    점수가 높을수록 수익률이 좋아야 이 조건들이 의미가 있다.
+    """
+    from . import backtest as bt
+
+    specs, market, universe = _resolve_specs(cond, preset, market, universe)
+    tickers = cache.get_tickers(market, universe)
+    if limit:
+        tickers = tickers[:limit]
+
+    # 기준일은 표본이 가장 긴 종목의 거래일에서 고른다
+    reference = next(
+        (df for df in (cache.load(market, t.symbol) for t in tickers[:50]) if df is not None), None
+    )
+    if reference is None:
+        console.print("[red]시세 캐시가 없습니다.[/] 먼저 `chartfinder update` 를 실행하세요.")
+        raise typer.Exit(code=1)
+
+    asof_dates = bt.trading_dates(reference, dates, every, horizon)
+    if not asof_dates:
+        console.print(
+            f"[red]기준일을 잡을 수 없습니다.[/] 채점에 최소 {bt.MIN_BARS}봉 + "
+            f"이후 {horizon}봉이 필요합니다. `update -y` 로 기간을 늘려주세요."
+        )
+        raise typer.Exit(code=1)
+
+    console.print(
+        f"[bold]{market.upper()}/{universe}[/] {len(tickers)}종목 · 조건 {len(specs)}개 · "
+        f"기준일 {len(asof_dates)}개 ({asof_dates[0]} ~ {asof_dates[-1]}) · "
+        f"이후 {horizon}영업일 · 상위 {top}종목"
+    )
+
+    with Progress(
+        SpinnerColumn(), TextColumn("채점 중"), BarColumn(),
+        TextColumn("{task.completed}/{task.total}"), TimeRemainingColumn(),
+        console=console, transient=True, redirect_stdout=False, redirect_stderr=False,
+    ) as bar:
+        task = bar.add_task("backtest", total=max(len(tickers), 1))
+        result = bt.run(
+            market, specs, tickers, asof_dates, horizon=horizon, top=top,
+            progress=lambda done, total: bar.update(task, completed=done, total=max(total, 1)),
+        )
+
+    if result.rows.empty:
+        console.print("[yellow]표본이 없습니다.[/] 기간이 짧거나 캐시가 부족합니다.")
+        raise typer.Exit(code=0)
+
+    _print_backtest(result)
+
+
+def _print_backtest(result) -> None:
+    summary = result.summary()
+
+    table = Table(title="기준일별", title_justify="left")
+    for column in ("기준일", "종목수", "상위평균", "전체평균", "초과", "상위승률"):
+        table.add_column(column, justify="right" if column != "기준일" else "left")
+    for row in result.by_date().itertuples(index=False):
+        excess = f"{row.초과:+.2f}%"
+        table.add_row(
+            str(row.asof), f"{row.종목수:,}", f"{row.상위평균:+.2f}%", f"{row.전체평균:+.2f}%",
+            f"[green]{excess}[/]" if row.초과 > 0 else f"[red]{excess}[/]",
+            f"{row.상위승률:.0f}%",
+        )
+    console.print(table)
+
+    buckets = result.by_score_bucket()
+    if not buckets.empty:
+        bucket_table = Table(title="점수 구간별 (점수가 의미 있으면 아래로 갈수록 수익이 올라야 한다)",
+                             title_justify="left")
+        for column in ("점수 구간", "종목수", "평균수익", "중앙수익", "승률"):
+            bucket_table.add_column(column, justify="right" if column != "점수 구간" else "left")
+        for row in buckets.itertuples(index=False):
+            bucket_table.add_row(
+                row.구간, f"{row.종목수:,}", f"{row.평균수익:+.2f}%",
+                f"{row.중앙수익:+.2f}%", f"{row.승률:.0f}%",
+            )
+        console.print(bucket_table)
+
+    correlation = summary["점수-수익 상관"]
+    noise = result.noise_level()
+    if abs(correlation) < noise:
+        verdict = (
+            f"[yellow]잡음 범위(±{noise:.3f}) 안입니다 — 이 표본으로는 판단할 수 없습니다[/]"
+        )
+    elif correlation > 0:
+        verdict = "[green]점수가 높을수록 수익이 좋았습니다[/]"
+    else:
+        verdict = "[red]점수가 높을수록 오히려 나빴습니다[/]"
+
+    excess = summary["평균초과수익"]
+    console.print(
+        f"\n기준일 {summary['기준일수']:.0f}개 · 표본 {summary['표본수']:,.0f}건\n"
+        f"상위 평균 {summary['상위평균수익']:+.2f}% · 전체 평균 {summary['전체평균수익']:+.2f}% · "
+        f"[bold]초과 {excess:+.2f}%[/] (초과한 기준일 비율 {summary['초과승률']:.0f}%)\n"
+        f"점수-수익 상관 {correlation:+.3f} → {verdict}"
+    )
+    if abs(correlation) >= noise and (correlation > 0) != (excess > 0):
+        console.print(
+            "[yellow]상관과 초과수익의 방향이 엇갈립니다.[/] 기준일을 늘려 다시 보세요."
+        )
+    console.print(
+        "[dim]매매 비용·슬리피지는 반영하지 않았고, 상장폐지 종목이 빠져 있어 "
+        "실제보다 낙관적일 수 있습니다.[/]"
+    )
 
 
 @app.command("presets")
