@@ -21,6 +21,9 @@ from .datasource.base import FLOW_COLUMNS
 
 #: 증분 갱신 시 겹쳐서 다시 받는 일수 (수정주가 반영분 보정)
 OVERLAP_DAYS = 7
+#: 요청 기간이 캐시보다 이만큼 더 앞서면 과거를 다시 받는다.
+#: 상장일이 늦은 종목까지 매번 다시 받지 않도록 여유를 둔다.
+BACKFILL_SLACK_DAYS = 120
 #: 종목 목록 캐시 유효기간
 TICKER_TTL_DAYS = 7
 #: 재무 캐시 유효기간. 분기마다 바뀌므로 자주 받을 이유가 없다.
@@ -182,6 +185,13 @@ def last_date(market: str, symbol: str) -> date | None:
     return df.index[-1].date()
 
 
+def first_date(market: str, symbol: str) -> date | None:
+    df = load(market, symbol)
+    if df is None or df.empty:
+        return None
+    return df.index[0].date()
+
+
 def merge(old: pd.DataFrame | None, new: pd.DataFrame) -> pd.DataFrame:
     if old is None or old.empty:
         return new
@@ -234,7 +244,9 @@ def update(
     fetch_end = today + timedelta(days=1)
     full_start = today - timedelta(days=int(365.25 * years) + 40)
 
-    stats: dict[str, object] = {"updated": 0, "skipped": 0, "failed": 0, "flows": 0}
+    stats: dict[str, object] = {
+        "updated": 0, "skipped": 0, "failed": 0, "flows": 0, "backfilled": 0
+    }
 
     want_flows = flows and getattr(source, "supports_flows", False)
     last_session = _last_expected_session(today)
@@ -248,8 +260,16 @@ def update(
             start = full_start
         else:
             last = last_date(market, sym)
+            first = first_date(market, sym)
+            # 요청한 기간이 캐시보다 앞서면 과거를 소급해서 채운다.
+            # 증분만 받으면 `-y 5` 로 늘려도 캐시는 예전 길이 그대로 남는다.
+            needs_backfill = first is not None and first > full_start + timedelta(days=BACKFILL_SLACK_DAYS)
+
             if last is None:
                 start = full_start
+            elif needs_backfill:
+                start = full_start
+                stats["backfilled"] += 1
             elif last >= last_session:
                 if want_flows and not flows_up_to_date(load(market, sym), last_session):
                     flows_only.append(sym)

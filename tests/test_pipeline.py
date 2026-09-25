@@ -269,3 +269,33 @@ def test_price_and_flow_rows_line_up(tmp_path, monkeypatch):
     # 당일치는 아직 공시 전일 수 있으므로 마지막 한 행까지는 비어도 된다
     assert df["foreign_net"].tail(2).notna().any()
     assert df["foreign_net"].iloc[:-1].notna().all()
+
+
+def test_update_backfills_when_the_requested_period_is_longer(tmp_path, monkeypatch):
+    """`-y 5` 로 늘려도 증분만 받으면 캐시는 예전 길이 그대로 남는다."""
+    monkeypatch.setenv("CHARTFINDER_HOME", str(tmp_path))
+    from chartfinder.datasource import get_source
+
+    symbols = [t.symbol for t in get_source("demo").list_tickers()][:3]
+
+    cache.update("demo", symbols=symbols, years=1)
+    short = cache.load("demo", symbols[0])
+
+    stats = cache.update("demo", symbols=symbols, years=4)
+    long = cache.load("demo", symbols[0])
+
+    assert stats["backfilled"] == 3
+    assert long.index[0] < short.index[0]
+    assert len(long) > len(short) * 2
+
+
+def test_update_does_not_backfill_twice(tmp_path, monkeypatch):
+    monkeypatch.setenv("CHARTFINDER_HOME", str(tmp_path))
+    from chartfinder.datasource import get_source
+
+    symbols = [t.symbol for t in get_source("demo").list_tickers()][:3]
+    cache.update("demo", symbols=symbols, years=3)
+    again = cache.update("demo", symbols=symbols, years=3)
+
+    assert again["backfilled"] == 0
+    assert again["skipped"] == 3

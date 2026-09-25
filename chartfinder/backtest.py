@@ -14,7 +14,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date, timedelta
 from typing import Callable, Iterable
 
@@ -68,6 +68,8 @@ class Backtest:
     rows: pd.DataFrame
     horizon: int
     top: int
+    #: 검증 구간 내내 모든 종목에서 0점이던 조건 (그 데이터가 없다는 뜻)
+    dead_conditions: list[str] = field(default_factory=list)
 
     @property
     def dates(self) -> list[date]:
@@ -217,6 +219,7 @@ def run_multi(
     """
     tickers = list(tickers)
     records: dict[str, list[dict]] = {name: [] for name in strategies}
+    best_by_key: dict[str, float] = {}
 
     for index, ticker in enumerate(tickers, start=1):
         if progress:
@@ -246,6 +249,7 @@ def run_multi(
                     if key not in computed:
                         computed[key] = get_condition(spec.key).score(ctx, spec.params)
                     scores[spec.key] = computed[key]
+                    best_by_key[spec.key] = max(best_by_key.get(spec.key, 0.0), computed[key])
                 records[name].append({
                     "asof": asof,
                     "symbol": ticker.symbol,
@@ -255,7 +259,12 @@ def run_multi(
                 })
 
     return {
-        name: Backtest(rows=pd.DataFrame(rows), horizon=horizon, top=top)
+        name: Backtest(
+            rows=pd.DataFrame(rows), horizon=horizon, top=top,
+            dead_conditions=[
+                spec.key for spec in strategies[name] if best_by_key.get(spec.key, 0.0) <= 0
+            ],
+        )
         for name, rows in records.items()
     }
 
@@ -275,6 +284,7 @@ def run(
     """
     tickers = list(tickers)
     records = []
+    best_by_key: dict[str, float] = {}
 
     for index, ticker in enumerate(tickers, start=1):
         if progress:
@@ -296,6 +306,8 @@ def run(
             # 기준일까지만 보고 채점한다
             window = df.iloc[: position + 1]
             scores = score_one(window, specs, fundamentals_as_of(fundamentals, asof))
+            for key, value in scores.items():
+                best_by_key[key] = max(best_by_key.get(key, 0.0), value)
             records.append({
                 "asof": asof,
                 "symbol": ticker.symbol,
@@ -304,4 +316,7 @@ def run(
                 "forward_return": gain,
             })
 
-    return Backtest(rows=pd.DataFrame(records), horizon=horizon, top=top)
+    return Backtest(
+        rows=pd.DataFrame(records), horizon=horizon, top=top,
+        dead_conditions=[key for key, best in best_by_key.items() if best <= 0],
+    )

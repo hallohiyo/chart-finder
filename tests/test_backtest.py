@@ -342,3 +342,47 @@ def test_run_multi_keeps_strategies_with_no_samples(monkeypatch):
     )
     assert set(results) == {"A"}
     assert results["A"].rows.empty
+
+
+# --------------------------------------------------------------------------- 죽은 조건
+
+
+def test_conditions_with_no_data_are_reported(monkeypatch):
+    """수급은 최근 120일치만 받는다. 그보다 앞선 구간을 검증하면 늘 0점이다."""
+    frames = _rigged_frames(count=6)
+    _install(monkeypatch, frames)
+    tickers = [_Ticker(symbol) for symbol in frames]
+    asof = next(iter(frames.values())).index[-26].date()
+
+    result = bt.run(
+        "demo",
+        [ConditionSpec("above_ma"), ConditionSpec("foreign_net_buy")],
+        tickers, [asof], horizon=20,
+    )
+    assert result.dead_conditions == ["foreign_net_buy"]
+
+
+def test_run_multi_reports_dead_conditions_per_strategy(monkeypatch):
+    frames = _rigged_frames(count=6)
+    _install(monkeypatch, frames)
+    tickers = [_Ticker(symbol) for symbol in frames]
+    asof = next(iter(frames.values())).index[-26].date()
+
+    results = bt.run_multi(
+        "demo",
+        {"차트": [ConditionSpec("above_ma")],
+         "수급": [ConditionSpec("foreign_net_buy"), ConditionSpec("above_ma")]},
+        tickers, [asof], horizon=20,
+    )
+    assert results["차트"].dead_conditions == []
+    assert results["수급"].dead_conditions == ["foreign_net_buy"]
+
+
+def test_live_conditions_are_not_flagged(monkeypatch):
+    frames = _rigged_frames(count=6)
+    _install(monkeypatch, frames)
+    tickers = [_Ticker(symbol) for symbol in frames]
+    asof = next(iter(frames.values())).index[-26].date()
+
+    result = bt.run("demo", [ConditionSpec("above_ma")], tickers, [asof], horizon=20)
+    assert result.dead_conditions == []

@@ -130,6 +130,8 @@ def update_cache(
         bar.update(task, completed=bar.tasks[0].total)
 
     summary = f"[green]완료[/] 갱신 {stats['updated']} · 최신 {stats['skipped']} · 실패 {stats['failed']}"
+    if stats.get("backfilled"):
+        summary += f" · 과거 소급 {stats['backfilled']}"
     if flows:
         summary += f" · 수급 {stats['flows']}"
         if stats.get("flow_source"):
@@ -615,6 +617,14 @@ def backtest(
         )
         raise typer.Exit(code=1)
 
+    if len(asof_dates) < dates:
+        span = (asof_dates[-1] - asof_dates[0]).days
+        console.print(
+            f"[yellow]기준일이 {len(asof_dates)}개뿐입니다[/] (요청 {dates}개). "
+            f"캐시가 {span}일치밖에 안 되기 때문입니다 — "
+            f"`chartfinder update -m {market} -y 5` 로 과거를 더 받으세요."
+        )
+
     what = f"전략 {len(strategies)}개" if strategies else f"조건 {len(specs)}개"
     console.print(
         f"[bold]{market.upper()}/{universe}[/] {len(tickers)}종목 · {what} · "
@@ -701,6 +711,21 @@ def _print_comparison(results: dict) -> None:
             f"{row['초과승률']:.0f}%", verdict,
         )
     console.print(table)
+
+    dead = {
+        name: result.dead_conditions
+        for name, result in results.items() if result.dead_conditions
+    }
+    if dead:
+        console.print()
+        for name, keys in dead.items():
+            labels = ", ".join(get_condition(key).label for key in keys)
+            console.print(f"[yellow]{name}[/] 전 구간 0점: {labels}")
+        console.print(
+            "[dim]해당 데이터가 검증 구간을 덮지 못한다는 뜻입니다. 수급은 최근 120일치만, "
+            "재무는 최근 3~4년치만 받아둡니다.[/]"
+        )
+
     console.print(
         "[dim]독립 표본은 기준일 수입니다. 기준일이 적으면 t값이 커지기 어렵습니다.\n"
         "매매 비용·슬리피지 미반영, 상장폐지 종목 누락으로 실제보다 낙관적일 수 있습니다.[/]"
@@ -760,6 +785,10 @@ def _print_backtest(result) -> None:
         f"(초과한 기준일 {summary['초과승률']:.0f}% · t={summary['초과t값']:+.2f})\n"
         f"기준일별 IC 평균 {ic:+.3f} (표준편차 {summary['IC표준편차']:.3f}) → {verdict}"
     )
+    if result.dead_conditions:
+        labels = ", ".join(get_condition(key).label for key in result.dead_conditions)
+        console.print(f"[yellow]전 구간 0점인 조건[/] {labels} [dim]— 그 데이터가 검증 구간을 "
+                      "덮지 못합니다 (수급은 최근 120일치만 받습니다)[/]")
     console.print(
         "[dim]매매 비용·슬리피지는 반영하지 않았고, 상장폐지 종목이 빠져 있어 "
         "실제보다 낙관적일 수 있습니다.[/]"
