@@ -20,6 +20,19 @@ EXCHANGE_COL = "cf_exchange"
 #: 투자자별 순매수 (주식 수). 지원하는 소스만 채운다.
 FLOW_COLUMNS = ["foreign_net", "inst_net", "indi_net"]
 
+#: 종목 정보(스냅샷) 항목. 일봉이 아니라 "지금 이 종목은 이렇다" 는 값들이다.
+#: 받을 수 있는 것만 채우고, 못 받은 항목은 NaN 으로 남긴다.
+PROFILE_FIELDS = [
+    "marcap",        # 시가총액 (원)
+    "shares",        # 상장주식수
+    "float_shares",  # 유통주식수 (최대주주 등 잠긴 물량 제외)
+    "major_pct",     # 최대주주 및 특수관계인 지분율 (%)
+    "foreign_pct",   # 외국인 보유비중 (%)
+    "short_ratio",   # 공매도 비중 (거래량 대비 %, 최근 평균)
+    "loan_ratio",    # 대차잔고 비중 (상장주식수 대비 %)
+    "dilution_pct",  # CB/BW 등 잠재 희석 물량 (상장주식수 대비 %)
+]
+
 
 @dataclass(frozen=True)
 class Ticker:
@@ -54,9 +67,19 @@ class DataSource(abc.ABC):
     supports_flows: bool = False
     #: 재무 데이터를 받을 수 있는 소스인지
     supports_fundamentals: bool = False
+    #: 종목 정보(시가총액·주식수·수급비중 등)를 받을 수 있는 소스인지
+    supports_profiles: bool = False
 
     def fetch_fundamentals(self, symbol: str) -> pd.DataFrame:
         """연간 재무 지표. 지원하지 않는 소스는 빈 프레임."""
+        return pd.DataFrame()
+
+    def fetch_profiles(self, symbols: list[str], universe: str = "all") -> pd.DataFrame:
+        """종목 정보 스냅샷. index=종목코드, 컬럼은 PROFILE_FIELDS 의 부분집합.
+
+        항목마다 출처가 달라 일부만 채워지는 것이 정상이다.
+        지원하지 않는 소스는 빈 프레임.
+        """
         return pd.DataFrame()
 
     def fetch_flows(self, symbol: str, start: date, end: date) -> pd.DataFrame:

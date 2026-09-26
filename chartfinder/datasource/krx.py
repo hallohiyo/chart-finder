@@ -25,6 +25,7 @@ class KrxSource(DataSource):
     batch_size = 24
     supports_flows = True
     supports_fundamentals = True
+    supports_profiles = True
 
     def __init__(self) -> None:
         import FinanceDataReader as fdr  # 지연 import: 네트워크 의존 모듈
@@ -70,6 +71,119 @@ class KrxSource(DataSource):
                 )
             )
         return tickers
+
+    # ------------------------------------------------------------- 종목 정보
+    def fetch_profiles(self, symbols: list[str], universe: str = "all") -> pd.DataFrame:
+        """시가총액·주식수·지분율 스냅샷.
+
+        항목마다 출처가 다르고, 어느 하나가 막혀도 나머지는 채워야 한다.
+        어디서 뭘 받았는지는 `self.profile_notes` 에 남긴다.
+        """
+        self.profile_notes: dict[str, str] = {}
+        wanted = [s for s in symbols if len(s) == 6 and s.isdigit()]
+        frame = pd.DataFrame(index=pd.Index(wanted, name="symbol"), dtype="float64")
+
+        for name, filler in (
+            ("상장/시총 (FinanceDataReader)", self._profiles_from_listing),
+            ("외국인 지분율 (pykrx)", self._profiles_foreign),
+            ("공매도 (pykrx)", self._profiles_short),
+            ("대주주·CB/BW (DART)", self._profiles_dart),
+        ):
+            try:
+                filler(frame, universe)
+            except Exception as exc:
+                self.profile_notes[name] = f"실패: {type(exc).__name__}: {exc}"
+                continue
+            self.profile_notes.setdefault(name, "받음")
+
+        # 유통주식수는 어디서도 안 준다. 잠긴 물량(대주주)을 뺀 값으로 센다.
+        if "shares" in frame and "major_pct" in frame:
+            frame["float_shares"] = frame["shares"] * (1.0 - frame["major_pct"] / 100.0)
+        if "shares" in frame and "dilution_shares" in frame:
+            frame["dilution_pct"] = frame["dilution_shares"] / frame["shares"] * 100.0
+            frame = frame.drop(columns=["dilution_shares"])
+        return frame
+
+    def _profiles_from_listing(self, frame: pd.DataFrame, universe: str) -> None:
+        frames = []
+        for mkt in (["KOSPI", "KOSDAQ"] if universe == "all" else [universe.upper()]):
+            frames.append(self._fdr.StockListing(mkt))
+        listing = pd.concat(frames, ignore_index=True)
+        code_col = _first_col(listing, ["Code", "Symbol"])
+        listing[code_col] = listing[code_col].astype(str).str.zfill(6)
+        listing = listing.set_index(code_col)
+        for field, candidates in (
+            ("marcap", ["Marcap", "MarketCap"]),
+            ("shares", ["Stocks", "Shares", "ListedShares"]),
+        ):
+            col = _first_col(listing, candidates, required=False)
+            if col:
+                frame[field] = pd.to_numeric(listing[col], errors="coerce").reindex(frame.index)
+
+    def _profiles_foreign(self, frame: pd.DataFrame, universe: str) -> None:
+        """외국인 지분율. 종목별이 아니라 시장 단위 1회 요청이라 싸다."""
+        for table in self._pykrx_by_ticker("get_exhaustion_rates_of_foreign_investment", universe):
+            if "지분율" in table:
+                frame["foreign_pct"] = _merge_column(frame, table["지분율"])
+            if "상장주식수" in table and "shares" not in frame:
+                frame["shares"] = _merge_column(frame, table["상장주식수"])
+
+    def _profiles_short(self, frame: pd.DataFrame, universe: str) -> None:
+        for table in self._pykrx_by_ticker("get_shorting_volume_by_ticker", universe):
+            if "비중" in table:
+                frame["short_ratio"] = _merge_column(frame, table["비중"])
+        for table in self._pykrx_by_ticker("get_shorting_balance_by_ticker", universe):
+            if "비중" in table:
+                frame["loan_ratio"] = _merge_column(frame, table["비중"])
+
+    def _pykrx_by_ticker(self, func_name: str, universe: str):
+        """시장별 표를 순서대로 돌려준다. 최근 영업일을 며칠 거슬러 시도한다."""
+        if self._pykrx is None:
+            from pykrx import stock
+
+            self._pykrx = stock
+        func = getattr(self._pykrx, func_name, None)
+        if func is None:
+            raise RuntimeError(f"pykrx 에 {func_name} 이 없습니다 (버전 확인).")
+
+        markets = ["KOSPI", "KOSDAQ"] if universe == "all" else [universe.upper()]
+        for back in range(0, 8):  # 휴일·집계 지연을 감안해 며칠 물러난다
+            day = (date.today() - timedelta(days=back)).strftime("%Y%m%d")
+            tables = []
+            for mkt in markets:
+                with contextlib.redirect_stdout(io.StringIO()), \
+                        contextlib.redirect_stderr(io.StringIO()):
+                    try:
+                        table = func(day, market=mkt)
+                    except Exception:
+                        table = pd.DataFrame()
+                if table is not None and not table.empty:
+                    table.index = table.index.astype(str).str.zfill(6)
+                    tables.append(table)
+            if tables:
+                return tables
+        raise RuntimeError(f"{func_name}: 최근 8일 안에 응답이 없습니다.")
+
+    def _profiles_dart(self, frame: pd.DataFrame, universe: str) -> None:
+        """대주주 지분율과 CB/BW 물량. 종목당 요청이라 DART 키가 있을 때만 한다."""
+        from . import dart
+
+        if not dart.enabled():
+            raise RuntimeError("DART_API_KEY 가 없어 대주주 지분율·CB/BW 는 건너뜁니다.")
+
+        major: dict[str, float] = {}
+        dilution: dict[str, float] = {}
+        for symbol in frame.index:
+            pct = dart.fetch_major_holder_pct(symbol)
+            if pct is not None:
+                major[symbol] = pct
+            shares = dart.fetch_dilution_shares(symbol)
+            if shares is not None:
+                dilution[symbol] = shares
+        if major:
+            frame["major_pct"] = pd.Series(major).reindex(frame.index)
+        if dilution:
+            frame["dilution_shares"] = pd.Series(dilution).reindex(frame.index)
 
     def fetch_ohlcv(self, symbol: str, start: date, end: date) -> pd.DataFrame:
         df = self._fdr.DataReader(symbol, str(start), str(end))
@@ -202,6 +316,11 @@ class KrxSource(DataSource):
             return pd.DataFrame()
         merged = pd.concat(frames)
         return merged[~merged.index.duplicated(keep="last")].sort_index()
+
+
+def _merge_column(frame: pd.DataFrame, series: pd.Series) -> pd.Series:
+    """스냅샷 표의 한 컬럼을 대상 종목 순서에 맞춘다."""
+    return pd.to_numeric(series, errors="coerce").reindex(frame.index)
 
 
 def _first_col(df: pd.DataFrame, candidates: list[str], required: bool = True) -> str | None:

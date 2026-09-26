@@ -152,3 +152,100 @@ def _amount(value: Any) -> float | None:
         return float(text)
     except ValueError:
         return None
+
+
+# --------------------------------------------------------------------------- 지분·물량
+#
+# 최대주주 지분율과 CB/BW 발행 물량은 공시에만 있다. 시세 API 로는 못 받는다.
+
+#: CB/BW 를 몇 년 전까지 거슬러 훑을지. 이미 전환됐을 수도 있어 너무 길게
+#: 보면 실제보다 부풀려진다.
+DILUTION_LOOKBACK_YEARS = 3
+
+
+def fetch_major_holder_pct(symbol: str, year: int | None = None) -> float | None:
+    """최대주주 및 특수관계인의 기말 지분율 (%). 못 받으면 None.
+
+    사업보고서 '최대주주 현황' 의 합계(계) 행을 쓴다.
+    """
+    corp = corp_codes().get(symbol)
+    if not corp:
+        return None
+    year = year or date.today().year - 1
+    for bsns_year in (year, year - 1):
+        try:
+            payload = _get(
+                "hyslrSttus.json",
+                corp_code=corp,
+                bsns_year=str(bsns_year),
+                reprt_code=ANNUAL_REPORT,
+            ).json()
+        except Exception:
+            continue
+        if payload.get("status") != "000":
+            continue
+        pct = _major_pct_from_rows(payload.get("list") or [])
+        if pct is not None:
+            return pct
+    return None
+
+
+def _major_pct_from_rows(rows: list[dict]) -> float | None:
+    """합계 행이 있으면 그걸, 없으면 개별 행을 더한다."""
+    individual = 0.0
+    for row in rows:
+        name = str(row.get("nm", "")).strip()
+        pct = _ratio(row.get("trmend_posesn_stock_qota_rt"))
+        if pct is None:
+            continue
+        if name in ("계", "합계", "소계"):
+            return pct
+        individual += pct
+    return individual if individual > 0 else None
+
+
+def fetch_dilution_shares(symbol: str, years: int = DILUTION_LOOKBACK_YEARS) -> float | None:
+    """CB/BW 로 새로 생길 수 있는 주식 수. 발행 공시가 없으면 0.0, 못 받으면 None.
+
+    권면총액 ÷ 전환(행사)가액 으로 센다. 이미 전환·상환된 물량은 공시만으로는
+    알 수 없어, 이 값은 상한으로 봐야 한다.
+    """
+    corp = corp_codes().get(symbol)
+    if not corp:
+        return None
+    end = date.today()
+    start = date(end.year - years, end.month, 1)
+    total = 0.0
+    seen_any = False
+    for path, price_key in (("cvbdIsDecsn.json", "cv_prc"), ("bdwtIsDecsn.json", "ex_prc")):
+        try:
+            payload = _get(
+                path,
+                corp_code=corp,
+                bgn_de=start.strftime("%Y%m%d"),
+                end_de=end.strftime("%Y%m%d"),
+            ).json()
+        except Exception:
+            continue
+        status = payload.get("status")
+        if status not in ("000", "013"):  # 013 = 조회된 데이터 없음
+            continue
+        seen_any = True
+        for row in payload.get("list") or []:
+            face = _amount(row.get("bd_fta"))
+            price = _amount(row.get(price_key))
+            if face and price and price > 0:
+                total += face / price
+    return total if seen_any else None
+
+
+def _ratio(value: Any) -> float | None:
+    if value is None:
+        return None
+    text = str(value).replace(",", "").replace("%", "").strip()
+    if not text or text == "-":
+        return None
+    try:
+        return float(text)
+    except ValueError:
+        return None

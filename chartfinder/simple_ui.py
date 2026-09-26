@@ -21,6 +21,19 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from chartfinder import cache, presets as presets_mod
 
+#: 종목 정보 항목을 사람 말로
+_PROFILE_LABELS = {
+    "marcap": "시가총액",
+    "shares": "상장주식수",
+    "float_shares": "유통주식수",
+    "major_pct": "대주주 지분율",
+    "foreign_pct": "외국인 보유비중",
+    "short_ratio": "공매도 비중",
+    "loan_ratio": "공매도 잔고 비중",
+    "dilution_pct": "CB/BW 잠재 물량",
+}
+
+
 class Cancelled(Exception):
     """사용자가 취소를 눌렀을 때 수집 루프를 빠져나오기 위한 신호."""
 
@@ -127,6 +140,8 @@ class App(tk.Tk):
                 note += "  [수급 필요]"
             if preset.needs_fundamentals:
                 note += "  [실적 필요]"
+            if preset.needs_profiles:
+                note += "  [종목정보 필요]"
             ttk.Label(row, text=note, foreground="#666").pack(side="left")
 
         buttons = ttk.Frame(box)
@@ -257,6 +272,8 @@ class App(tk.Tk):
             extras.append("외국인·기관")
         if cache.has_fundamentals(market):
             extras.append("실적")
+        if cache.has_profiles(market):
+            extras.append("종목정보")
         suffix = f" · {' · '.join(extras)} 포함" if extras else ""
         self.data_status.config(
             text=f"{info['symbols']}종목 · 최근 {info['latest'] or '-'}{suffix}",
@@ -273,6 +290,8 @@ class App(tk.Tk):
             missing.append("외국인·기관")
         if any(p.needs_fundamentals for p in presets) and not cache.has_fundamentals(market):
             missing.append("실적")
+        if any(p.needs_profiles for p in presets) and not cache.has_profiles(market):
+            missing.append("종목정보")
         return missing
 
     # ------------------------------------------------------------------ 작업
@@ -358,6 +377,7 @@ class App(tk.Tk):
         universe = self._universe(chosen, market)
         flows = any(p.needs_flows for p in chosen)
         fundamentals = any(p.needs_fundamentals for p in chosen)
+        profiles = any(p.needs_profiles for p in chosen)
 
         def work():
             kwargs = {"universe": universe} if universe else {}
@@ -373,6 +393,19 @@ class App(tk.Tk):
                     **kwargs,
                 )
                 stats["fundamentals"] = fund["updated"]
+            if profiles:
+                self.report(0, 1, "종목 정보 받는 중")
+                prof = cache.update_profiles(market, **kwargs)
+                stats["profiles"] = prof.get("updated", 0)
+                if prof.get("error"):
+                    stats["profile_error"] = prof["error"]
+                # 시가총액·공매도는 받아도 대주주·CB 는 DART 키가 없으면 빈다.
+                # 어떤 항목이 비었는지 남겨야 조건이 조용히 죽지 않는다.
+                empty = [
+                    field for field, count in (prof.get("filled") or {}).items() if count == 0
+                ]
+                if empty or prof.get("missing"):
+                    stats["profile_gaps"] = list(empty) + list(prof.get("missing") or [])
             return stats
 
         def finish(stats):
@@ -381,6 +414,20 @@ class App(tk.Tk):
             self.status.set(f"데이터 준비 완료 · {done:,}종목")
             self.timing.set(f"걸린 시간 {_duration(time.monotonic() - self.started_at)}")
             self._refresh_data_status()
+            if stats.get("profile_error"):
+                messagebox.showwarning(
+                    "종목 정보를 받지 못했습니다", str(stats["profile_error"])
+                )
+            elif stats.get("profile_gaps"):
+                labels = ", ".join(
+                    _PROFILE_LABELS.get(f, f) for f in stats["profile_gaps"]
+                )
+                messagebox.showinfo(
+                    "일부 항목은 비어 있습니다",
+                    f"받지 못한 항목: {labels}\n\n"
+                    "대주주 지분율과 CB/BW 물량은 금융감독원 DART 키(DART_API_KEY)가 "
+                    "있어야 받을 수 있습니다. 그 항목을 쓰는 조건은 0점으로 처리됩니다.",
+                )
             if after:
                 after()
 

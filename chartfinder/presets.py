@@ -54,6 +54,10 @@ class Preset:
     def needs_fundamentals(self) -> bool:
         return "fundamentals" in self.requires
 
+    @property
+    def needs_profiles(self) -> bool:
+        return "profiles" in self.requires
+
 
 def load(path: str | Path) -> Preset:
     data = yaml.safe_load(Path(path).read_text(encoding="utf-8")) or {}

@@ -17,7 +17,7 @@ from typing import Callable, Iterable
 import pandas as pd
 
 from .datasource import Ticker, get_source
-from .datasource.base import FLOW_COLUMNS
+from .datasource.base import FLOW_COLUMNS, PROFILE_FIELDS
 
 #: 증분 갱신 시 겹쳐서 다시 받는 일수 (수정주가 반영분 보정)
 OVERLAP_DAYS = 7
@@ -28,6 +28,9 @@ BACKFILL_SLACK_DAYS = 120
 TICKER_TTL_DAYS = 7
 #: 재무 캐시 유효기간. 분기마다 바뀌므로 자주 받을 이유가 없다.
 FUNDAMENTAL_TTL_DAYS = 30
+
+#: 종목 정보(시가총액·주식수·지분율)는 하루 한 번이면 충분하다
+PROFILE_TTL_DAYS = 1
 #: 수급을 처음 받을 때 거슬러 올라갈 일수.
 #: 수급 조건이 보는 구간은 길어야 수십 일이라 시세만큼 길게 받을 이유가 없다.
 FLOW_HISTORY_DAYS = 120
@@ -51,6 +54,12 @@ def _price_path(market: str, symbol: str) -> Path:
 def _fundamental_path(market: str, symbol: str) -> Path:
     safe = symbol.replace("/", "_").replace("\\", "_")
     path = cache_home() / "fundamentals" / market / f"{safe}.parquet"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def _profile_path(market: str) -> Path:
+    path = cache_home() / "profiles" / f"{market}.parquet"
     path.parent.mkdir(parents=True, exist_ok=True)
     return path
 
@@ -147,6 +156,82 @@ def update_fundamentals(
         save_fundamentals(market, symbol, df)
         stats["updated"] += 1
         stats["source"] = getattr(source, "_fundamental_provider", None)
+    return stats
+
+
+# --------------------------------------------------------------------------- 종목 정보
+
+
+def load_profiles(market: str) -> pd.DataFrame | None:
+    """시장 전체 종목 정보 스냅샷 (index=종목코드). 없으면 None."""
+    path = _profile_path(market)
+    if not path.exists():
+        return None
+    try:
+        df = pd.read_parquet(path)
+    except Exception:
+        return None
+    return None if df.empty else df
+
+
+def save_profiles(market: str, df: pd.DataFrame) -> None:
+    if df is None or df.empty:
+        return
+    df.index = df.index.astype(str)
+    df.to_parquet(_profile_path(market))
+
+
+def profiles_fresh(market: str, ttl_days: int = PROFILE_TTL_DAYS) -> bool:
+    path = _profile_path(market)
+    if not path.exists():
+        return False
+    age = datetime.now() - datetime.fromtimestamp(path.stat().st_mtime)
+    return age.days < ttl_days
+
+
+def has_profiles(market: str) -> bool:
+    df = load_profiles(market)
+    return df is not None and not df.empty
+
+
+def update_profiles(
+    market: str,
+    universe: str = "all",
+    symbols: list[str] | None = None,
+    force: bool = False,
+    progress: ProgressFn | None = None,
+) -> dict[str, object]:
+    """종목 정보 스냅샷을 받아 캐시한다.
+
+    항목마다 출처가 달라 일부만 채워질 수 있다. 어떤 항목이 몇 종목
+    채워졌는지 stats["filled"] 에 남겨, 조건이 조용히 죽는 일을 막는다.
+    """
+    source = get_source(market)
+    if not getattr(source, "supports_profiles", False):
+        return {"updated": 0, "error": f"{market} 시장은 종목 정보 수집을 지원하지 않습니다."}
+
+    if not force and profiles_fresh(market):
+        existing = load_profiles(market)
+        return {"updated": 0, "skipped": len(existing) if existing is not None else 0}
+
+    if symbols is None:
+        symbols = [t.symbol for t in get_tickers(market, universe)]
+
+    stats: dict[str, object] = {"updated": 0}
+    try:
+        df = source.fetch_profiles(symbols, universe)
+    except Exception as exc:
+        return {"updated": 0, "error": f"{type(exc).__name__}: {exc}"}
+    if df is None or df.empty:
+        return {"updated": 0, "error": "종목 정보 응답이 비어 있습니다."}
+
+    df = df.reindex(columns=[c for c in PROFILE_FIELDS if c in df.columns])
+    save_profiles(market, df)
+    stats["updated"] = len(df)
+    stats["filled"] = {col: int(df[col].notna().sum()) for col in df.columns}
+    stats["missing"] = [f for f in PROFILE_FIELDS if f not in df.columns]
+    if progress:
+        progress(len(df), len(df), "")
     return stats
 
 

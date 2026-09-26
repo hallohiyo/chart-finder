@@ -1,0 +1,51 @@
+name: 물량·수급 점검 — 실제 돈과 잠긴 물량
+market: kr
+universe: all
+description: 거래대금 충분, 시총 중소형, 유통물량 넉넉, 공매도·CB 부담 적음.
+requires: [profiles]
+order: 90
+conditions:
+  # 1. 거래대금 — 거래량보다 실제 돈이 얼마나 들어오는지
+  - key: turnover_value
+    weight: 2.0
+    params: {min_value: 30.0, period: 20}
+
+  # 2. 시가총액 — 작은 종목일수록 변동성이 큰 편
+  - key: market_cap
+    weight: 1.5
+    params: {low: 1000.0, high: 30000.0}
+
+  # 3. 유통주식 비율 — 실제 시장에서 거래되는 물량
+  - key: float_ratio
+    weight: 1.5
+    params: {low: 40.0, high: 100.0}
+
+  # 4. 대주주 지분율 — 물량 잠김 정도 (너무 낮으면 경영 불안)
+  - key: major_holder
+    weight: 1.0
+    params: {low: 20.0, high: 60.0}
+
+  # 5. 외국인 보유비중
+  - key: foreign_holding
+    weight: 1.0
+    params: {min_pct: 5.0}
+
+  # 6. 공매도 비중 — 하락에 베팅한 물량
+  - key: low_short_ratio
+    weight: 1.5
+    params: {max_pct: 3.0}
+
+  # 7. 공매도 잔고 — 아직 안 갚은 물량 (대차잔고 대용)
+  - key: low_short_balance
+    weight: 1.0
+    params: {max_pct: 2.0}
+
+  # 8. CB/BW — 잠재 매물과 희석 가능성
+  - key: low_dilution
+    weight: 1.5
+    params: {max_pct: 5.0}
+
+  # 9. 회전율 — 하루에 상장주식의 몇 %가 손바꿈하는지
+  - key: share_turnover
+    weight: 1.0
+    params: {low: 0.5, high: 15.0, period: 20}

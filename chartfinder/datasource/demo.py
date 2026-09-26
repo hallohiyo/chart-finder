@@ -29,6 +29,7 @@ class DemoSource(DataSource):
     universes = ("all",)
     supports_flows = True  # 합성 수급 데이터가 일봉에 함께 들어 있다
     supports_fundamentals = True
+    supports_profiles = True
 
     def __init__(self, count: int = 60) -> None:
         self.count = count
@@ -58,6 +59,10 @@ class DemoSource(DataSource):
 
     def fetch_fundamentals(self, symbol: str) -> pd.DataFrame:
         return generate_fundamentals(symbol)
+
+    def fetch_profiles(self, symbols: list[str], universe: str = "all") -> pd.DataFrame:
+        self.profile_notes = {"합성 종목 정보": "받음"}
+        return generate_profiles(symbols)
 
 
 def generate(symbol: str, start: date, end: date) -> pd.DataFrame:
@@ -134,3 +139,23 @@ def generate_fundamentals(symbol: str, years: int = 5) -> pd.DataFrame:
             index=periods,
         )
     )
+
+
+def generate_profiles(symbols: list[str]) -> pd.DataFrame:
+    """합성 종목 정보. 실제 출처가 없어도 종목정보 조건을 시험할 수 있게."""
+    rows = {}
+    for symbol in symbols:
+        rng = np.random.default_rng(abs(hash(symbol)) % (2**32) + 13)
+        shares = float(rng.integers(3_000_000, 500_000_000))
+        major = float(rng.uniform(5.0, 75.0))
+        rows[symbol] = {
+            "marcap": shares * float(rng.integers(1_000, 200_000)),
+            "shares": shares,
+            "float_shares": shares * (1.0 - major / 100.0),
+            "major_pct": major,
+            "foreign_pct": float(rng.uniform(0.0, 40.0)),
+            "short_ratio": float(rng.uniform(0.0, 12.0)),
+            "loan_ratio": float(rng.uniform(0.0, 8.0)),
+            "dilution_pct": float(rng.choice([0.0, 0.0, rng.uniform(1.0, 25.0)])),
+        }
+    return pd.DataFrame.from_dict(rows, orient="index")

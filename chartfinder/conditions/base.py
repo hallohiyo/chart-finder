@@ -24,9 +24,15 @@ class Ctx:
     재무 데이터(fundamentals)는 있을 때만 채워진다.
     """
 
-    def __init__(self, df: pd.DataFrame, fundamentals: pd.DataFrame | None = None) -> None:
+    def __init__(
+        self,
+        df: pd.DataFrame,
+        fundamentals: pd.DataFrame | None = None,
+        profile: dict[str, float] | None = None,
+    ) -> None:
         self.df = df
         self.fundamentals = fundamentals
+        self._profile = profile or {}
         self._memo: dict[tuple, Any] = {}
 
     # ---------------------------------------------------------------- 기본 시세
@@ -63,6 +69,30 @@ class Ctx:
         if series.empty:
             return None
         return series.tail(years) if years else series
+
+    def profile(self, name: str) -> float | None:
+        """종목 정보 스냅샷 값 (시가총액·주식수·지분율 등). 없으면 None.
+
+        `chartfinder update --profiles` 를 돌리지 않았거나, 그 항목을 주는
+        출처가 막혀 있으면 None 이다. 조건은 None 을 0점으로 돌려야 한다.
+        """
+        value = self._profile.get(name)
+        if value is None:
+            return None
+        try:
+            value = float(value)
+        except (TypeError, ValueError):
+            return None
+        return None if pd.isna(value) else value
+
+    def turnover(self, period: int = 1) -> pd.Series:
+        """거래대금 (종가 × 거래량). period 를 주면 그 기간 평균."""
+        return self._memoized(
+            ("turnover", period),
+            lambda: (self.close * self.volume).rolling(period).mean()
+            if period > 1
+            else self.close * self.volume,
+        )
 
     def flow(self, name: str) -> pd.Series | None:
         """투자자별 순매수 컬럼 (foreign_net / inst_net / indi_net).

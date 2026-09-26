@@ -9,6 +9,7 @@ import typer
 from rich.console import Console
 from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TimeRemainingColumn
 from rich.table import Table
+import pandas as pd
 
 from . import cache, presets as presets_mod
 from .conditions import all_conditions, by_category, get as get_condition
@@ -105,6 +106,11 @@ def update_cache(
         False, "--fundamentals",
         help="재무 데이터(매출·영업이익·ROE 등)도 함께 수집. 종목당 1회 요청이라 느리다",
     ),
+    profiles: bool = typer.Option(
+        False, "--profiles",
+        help="종목 정보(시가총액·주식수·외국인 지분율·공매도·대주주·CB/BW)도 수집. "
+             "대주주·CB/BW 는 DART_API_KEY 가 있어야 한다",
+    ),
     workers: Optional[int] = typer.Option(
         None, "--workers", "-w",
         help="동시에 보낼 요청 수 (기본 8). 늘리면 빨라지지만 너무 크면 서버가 막는다",
@@ -175,6 +181,35 @@ def update_cache(
         if fund_stats.get("error"):
             console.print(f"[yellow]재무 수집 오류:[/] {fund_stats['error']}")
 
+    if profiles:
+        with console.status("종목 정보 수집 중 (시장 단위 요청이라 종목 수와 무관)"):
+            prof_stats = cache.update_profiles(
+                market, universe, symbols=symbols, force=force
+            )
+        if prof_stats.get("error"):
+            console.print(f"[yellow]종목 정보:[/] {prof_stats['error']}")
+        else:
+            console.print(
+                f"[green]종목 정보[/] {prof_stats['updated']}종목"
+                + (f" · 최신 {prof_stats['skipped']}" if prof_stats.get("skipped") else "")
+            )
+            # 어떤 항목이 몇 종목 채워졌는지 보여준다. 0이면 그 조건은 죽는다.
+            filled = prof_stats.get("filled") or {}
+            if filled:
+                table = Table(show_header=True)
+                table.add_column("항목")
+                table.add_column("채워진 종목", justify="right")
+                for field, count in filled.items():
+                    mark = "[red]" if count == 0 else "[green]"
+                    table.add_row(_PROFILE_LABELS.get(field, field), f"{mark}{count}[/]")
+                console.print(table)
+            from .datasource import get_source
+
+            source = get_source(market)
+            for name, note in (getattr(source, "profile_notes", {}) or {}).items():
+                style = "dim" if note == "받음" else "yellow"
+                console.print(f"[{style}]  {name}: {note}[/]")
+
     if flows and stats.get("flow_error"):
         console.print(f"[yellow]수급을 받지 못한 종목이 있습니다:[/] {stats['flow_error']}")
     elif flows and not stats["flows"] and not stats["updated"]:
@@ -192,6 +227,29 @@ def show_status(
     console.print(f"종목 수   : {info['symbols']}")
     console.print(f"최근 일자 : {info['latest'] or '-'}")
     console.print(f"용량      : {info['size_mb']} MB")
+
+    snapshot = cache.load_profiles(market)
+    if snapshot is None or snapshot.empty:
+        console.print("종목 정보 : [dim]없음 (update --profiles)[/]")
+    else:
+        filled = ", ".join(
+            f"{_PROFILE_LABELS.get(col, col)} {int(snapshot[col].notna().sum())}"
+            for col in snapshot.columns
+        )
+        console.print(f"종목 정보 : {len(snapshot)}종목 · {filled}")
+
+
+#: 종목 정보 항목을 사람 말로
+_PROFILE_LABELS = {
+    "marcap": "시가총액",
+    "shares": "상장주식수",
+    "float_shares": "유통주식수",
+    "major_pct": "대주주 지분율",
+    "foreign_pct": "외국인 보유비중",
+    "short_ratio": "공매도 비중",
+    "loan_ratio": "공매도 잔고 비중",
+    "dilution_pct": "CB/BW 잠재 물량",
+}
 
 
 @app.command("speedtest")
@@ -322,6 +380,7 @@ def doctor(
 
     if not getattr(source, "supports_flows", False):
         console.print(f"[dim]·[/] 수급: {market} 시장은 지원하지 않습니다.")
+        _check_profiles(source, market, symbol, step)
         return
 
     # 정규화 전 원본 응답을 그대로 보여준다 (형식이 바뀌었는지 확인용)
@@ -329,6 +388,7 @@ def doctor(
         flows = step(f"수급 조회 ({symbol})", lambda: source.fetch_flows(symbol, start, end))
         if flows is not None and not flows.empty:
             console.print(f"   {len(flows)}행 · 컬럼: {list(flows.columns)}")
+        _check_profiles(source, market, symbol, step)
         return
 
     def raw_flows():
@@ -397,6 +457,7 @@ def doctor(
         console.print(f"[dim]{flows.tail(3)}[/]")
 
     _check_fundamentals(source, market, symbol, step)
+    _check_profiles(source, market, symbol, step)
 
 
 def _print_raw_finance_titles(symbol: str, step) -> None:
@@ -420,7 +481,7 @@ def _check_dart(symbol: str, step) -> None:
     """영업활동현금흐름은 네이버가 주지 않아 DART 를 쓴다."""
     from .datasource import dart
 
-    if not dart.enabled():
+    if market == "kr" and not dart.enabled():
         console.print(
             "[dim]·[/] 영업현금흐름: DART 키가 없어 건너뜁니다. "
             "opendart.fss.or.kr 에서 무료 발급 후 DART_API_KEY 환경변수에 넣으면 채워집니다."
@@ -430,6 +491,43 @@ def _check_dart(symbol: str, step) -> None:
     flows = step(f"영업현금흐름 · DART ({symbol})", lambda: dart.fetch_cash_flow(symbol))
     if flows is not None and not flows.empty:
         console.print(f"[dim]{flows.to_string()}[/]")
+
+
+def _check_profiles(source, market: str, symbol: str, step) -> None:
+    """종목 정보는 출처가 네 군데다. 어디가 막혔는지 항목별로 보여준다."""
+    if not getattr(source, "supports_profiles", False):
+        console.print("[dim]종목 정보를 지원하지 않는 시장입니다.[/]")
+        return
+
+    from . import cache as cache_mod
+    from .datasource import dart
+
+    if market == "kr" and not dart.enabled():
+        console.print(
+            "[yellow]DART_API_KEY 가 없습니다[/] — 대주주 지분율·CB/BW·유통주식수는 "
+            "받을 수 없습니다. opendart.fss.or.kr 에서 무료로 발급됩니다."
+        )
+
+    # 종목 하나만 넣어 각 출처를 실제로 때려본다 (전 종목은 오래 걸린다)
+    frame = step(f"종목 정보 ({symbol})", lambda: source.fetch_profiles([symbol]))
+    for name, note in (getattr(source, "profile_notes", {}) or {}).items():
+        style = "green" if note == "받음" else "yellow"
+        console.print(f"   [{style}]{name}: {note}[/]")
+    if frame is None or frame.empty:
+        console.print("[yellow]   종목 정보를 하나도 받지 못했습니다.[/]")
+        return
+
+    table = Table(show_header=True)
+    table.add_column("항목")
+    table.add_column("값", justify="right")
+    row = frame.iloc[0]
+    for field in cache_mod.PROFILE_FIELDS:
+        value = row.get(field)
+        if value is None or pd.isna(value):
+            table.add_row(_PROFILE_LABELS.get(field, field), "[red]못 받음[/]")
+        else:
+            table.add_row(_PROFILE_LABELS.get(field, field), f"{float(value):,.2f}")
+    console.print(table)
 
 
 def _check_fundamentals(source, market: str, symbol: str, step) -> None:

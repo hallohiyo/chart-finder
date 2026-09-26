@@ -22,6 +22,7 @@ FLOW = "수급"
 FUNDAMENTAL = "재무"
 PATTERN = "패턴"
 FILTER = "필터"
+PROFILE = "종목정보"
 
 
 def _p(name, label, type="int", default=0, min=None, max=None, step=None,
@@ -902,3 +903,186 @@ def positive_cash_flow(ctx: Ctx, years: int) -> float:
     if series is None or len(series) < years:
         return 0.0
     return float((series > 0).sum()) / years
+
+
+# --------------------------------------------------------------------------- 종목정보
+#
+# 여기서부터는 일봉이 아니라 "지금 이 종목은 이렇다" 는 스냅샷 값을 본다.
+# 거래대금·회전율은 시세만으로 계산되므로 언제나 채점된다. 나머지는
+# `chartfinder update --profiles` 로 받아 둔 값이 있어야 하고, 항목별로
+# 출처가 달라 일부는 못 받을 수 있다 (못 받으면 0점 → 실행 후 경고가 뜬다).
+
+
+@condition(
+    "turnover_value", "거래대금", VOLUME,
+    params=(
+        _p("min_value", "최소 평균 거래대금 (억원)", "float",
+           default=10.0, min=0.1, max=10000.0, step=1.0),
+        _p("period", "평균 낼 일수", default=20, min=1, max=120),
+    ),
+    description="최근 N일 평균 거래대금이 기준 이상. 거래량보다 실제로 들어온 돈을 본다.",
+    min_bars=5,
+)
+def turnover_value(ctx: Ctx, min_value: float, period: int) -> float:
+    value = ctx.last(ctx.turnover(period))
+    if value is None or value <= 0:
+        return 0.0
+    return soft_gt(value / 1e8, min_value, tol=max(min_value * 0.5, 1.0))
+
+
+@condition(
+    "turnover_surge", "거래대금 급증", VOLUME,
+    params=(
+        _p("mult", "평균 대비 배수", "float", default=2.0, min=1.1, max=20.0, step=0.1),
+        _p("period", "비교할 평균 일수", default=20, min=5, max=120),
+    ),
+    description="최근 거래대금이 평소 평균의 N배 이상. 거래량 급증보다 돈의 유입을 본다.",
+    min_bars=25,
+)
+def turnover_surge(ctx: Ctx, mult: float, period: int) -> float:
+    turnover = ctx.turnover()
+    today = ctx.last(turnover)
+    average = ctx.last(turnover.rolling(period).mean())
+    if not today or not average or average <= 0:
+        return 0.0
+    return soft_gt(today / average, mult, tol=mult * 0.4)
+
+
+@condition(
+    "market_cap", "시가총액", PROFILE,
+    params=(
+        _p("low", "최소 (억원)", "float", default=500.0, min=10.0, max=5_000_000.0, step=100.0),
+        _p("high", "최대 (억원)", "float", default=20000.0, min=50.0, max=5_000_000.0, step=100.0),
+    ),
+    description="시가총액이 범위 안. 작은 종목일수록 변동성이 크다.",
+    min_bars=1,
+)
+def market_cap(ctx: Ctx, low: float, high: float) -> float:
+    marcap = ctx.profile("marcap")
+    if marcap is None or marcap <= 0:
+        return 0.0
+    return soft_between(marcap / 1e8, low, high)
+
+
+@condition(
+    "float_ratio", "유통주식 비율", PROFILE,
+    params=(
+        _p("low", "최소 (%)", "float", default=30.0, min=1.0, max=100.0, step=1.0),
+        _p("high", "최대 (%)", "float", default=100.0, min=1.0, max=100.0, step=1.0),
+    ),
+    description="실제로 시장에서 돌아다니는 물량의 비율. 낮으면 잠긴 물량이 많다.",
+    min_bars=1,
+)
+def float_ratio(ctx: Ctx, low: float, high: float) -> float:
+    shares = ctx.profile("shares")
+    floating = ctx.profile("float_shares")
+    if not shares or not floating or shares <= 0:
+        return 0.0
+    return soft_between(floating / shares * 100.0, low, high)
+
+
+@condition(
+    "share_turnover", "회전율", VOLUME,
+    params=(
+        _p("low", "최소 (%)", "float", default=0.5, min=0.01, max=100.0, step=0.1),
+        _p("high", "최대 (%)", "float", default=20.0, min=0.1, max=500.0, step=1.0),
+        _p("period", "평균 낼 일수", default=20, min=1, max=120),
+    ),
+    description="상장주식수 대비 하루 거래량 비율. 너무 낮으면 못 팔고, 너무 높으면 과열이다.",
+    min_bars=5,
+)
+def share_turnover(ctx: Ctx, low: float, high: float, period: int) -> float:
+    shares = ctx.profile("shares")
+    volume = ctx.last(ctx.volume.rolling(period).mean())
+    if not shares or shares <= 0 or volume is None:
+        return 0.0
+    return soft_between(volume / shares * 100.0, low, high)
+
+
+@condition(
+    "major_holder", "대주주 지분율", PROFILE,
+    params=(
+        _p("low", "최소 (%)", "float", default=30.0, min=0.0, max=100.0, step=1.0),
+        _p("high", "최대 (%)", "float", default=70.0, min=0.0, max=100.0, step=1.0),
+    ),
+    description="최대주주+특수관계인 지분율. 너무 낮으면 경영 불안, 너무 높으면 물량이 잠긴다.",
+    min_bars=1,
+)
+def major_holder(ctx: Ctx, low: float, high: float) -> float:
+    pct = ctx.profile("major_pct")
+    if pct is None:
+        return 0.0
+    return soft_between(pct, low, high)
+
+
+@condition(
+    "foreign_holding", "외국인 보유비중", PROFILE,
+    params=(_p("min_pct", "최소 (%)", "float", default=5.0, min=0.0, max=100.0, step=1.0),),
+    description="외국인이 들고 있는 비중. 높으면 그만큼 검증된 종목으로 본다.",
+    min_bars=1,
+)
+def foreign_holding(ctx: Ctx, min_pct: float) -> float:
+    pct = ctx.profile("foreign_pct")
+    if pct is None:
+        return 0.0
+    return soft_gt(pct, min_pct, tol=max(min_pct * 0.6, 2.0))
+
+
+@condition(
+    "inst_accumulation", "기관 누적 매수 비중", PROFILE,
+    params=(
+        _p("min_pct", "최소 (%)", "float", default=0.5, min=0.0, max=50.0, step=0.1),
+        _p("days", "누적 일수", default=60, min=5, max=250),
+    ),
+    description="최근 N일 기관 순매수를 상장주식수로 나눈 값. "
+                "기관 보유비중은 어디서도 공개하지 않아, 실제로 받을 수 있는 "
+                "순매수 누적으로 본다.",
+    min_bars=10,
+)
+def inst_accumulation(ctx: Ctx, min_pct: float, days: int) -> float:
+    shares = ctx.profile("shares")
+    flow = ctx.flow("inst_net")
+    if not shares or shares <= 0 or flow is None:
+        return 0.0
+    net = float(flow.tail(days).sum())
+    return soft_gt(net / shares * 100.0, min_pct, tol=max(min_pct, 0.2))
+
+
+@condition(
+    "low_short_ratio", "공매도 비중 낮음", PROFILE,
+    params=(_p("max_pct", "최대 (%)", "float", default=3.0, min=0.0, max=50.0, step=0.5),),
+    description="거래량 대비 공매도 비중이 낮을수록 좋다. 높으면 하락에 베팅한 물량이 많다.",
+    min_bars=1,
+)
+def low_short_ratio(ctx: Ctx, max_pct: float) -> float:
+    pct = ctx.profile("short_ratio")
+    if pct is None:
+        return 0.0
+    return soft_lt(pct, max_pct, tol=max(max_pct * 0.8, 1.0))
+
+
+@condition(
+    "low_short_balance", "공매도 잔고 부담 낮음", PROFILE,
+    params=(_p("max_pct", "최대 (%)", "float", default=2.0, min=0.0, max=50.0, step=0.5),),
+    description="상장주식수 대비 아직 안 갚은 공매도 잔고 비중. "
+                "대차잔고 자체는 거래소 회원사만 볼 수 있어 이걸로 본다.",
+    min_bars=1,
+)
+def low_short_balance(ctx: Ctx, max_pct: float) -> float:
+    pct = ctx.profile("loan_ratio")
+    if pct is None:
+        return 0.0
+    return soft_lt(pct, max_pct, tol=max(max_pct * 0.8, 1.0))
+
+
+@condition(
+    "low_dilution", "잠재 희석 물량 적음", PROFILE,
+    params=(_p("max_pct", "최대 (%)", "float", default=5.0, min=0.0, max=100.0, step=1.0),),
+    description="CB·BW 등으로 새로 풀릴 수 있는 물량의 비중. 많으면 주식 수가 늘어난다.",
+    min_bars=1,
+)
+def low_dilution(ctx: Ctx, max_pct: float) -> float:
+    pct = ctx.profile("dilution_pct")
+    if pct is None:
+        return 0.0
+    return soft_lt(pct, max_pct, tol=max(max_pct * 0.8, 2.0))
