@@ -731,6 +731,7 @@ def _scan_multi(
     table.add_column("종목", style="cyan", no_wrap=True)
     table.add_column("이름", no_wrap=True)
     table.add_column("적합도", justify="right", style="bold green")
+    table.add_column("충족", justify="right")
     table.add_column("맞는 전략")
     table.add_column("종가", justify="right")
     table.add_column("등락%", justify="right")
@@ -740,7 +741,8 @@ def _scan_multi(
     for i, row in enumerate(records, start=1):
         change = row["chg_pct"]
         table.add_row(
-            str(i), row["symbol"], row["name"], f"{row['score']:.3f}", row["strategy"],
+            str(i), row["symbol"], row["name"], f"{row['score']:.3f}",
+            f"{row['matched']}/{row['of']}", row["strategy"],
             f"{row['close']:,.2f}",
             f"[red]{change:+.2f}[/]" if change < 0 else f"[green]{change:+.2f}[/]",
         )
@@ -749,13 +751,27 @@ def _scan_multi(
     # 전략별 점수는 열로 넣으면 좁은 터미널에서 뭉개지므로 줄로 푼다
     console.print()
     for i, row in enumerate(records, start=1):
-        scores = " · ".join(
-            f"{name} {row[f'p_{name}']:.2f}" for name in strategies
+        others = " · ".join(
+            f"{name} {row[f'p_{name}']:.2f}"
+            for name in strategies
+            if name != row["strategy"]
         )
         console.print(f"[dim]{i:>2}[/] [cyan]{row['symbol']}[/] {row['name']}")
-        console.print(f"     {scores}")
+        console.print(
+            f"     [bold]{row['strategy']} {row['score']:.2f}[/]"
+            f" · 조건 {row['matched']}/{row['of']} 충족"
+        )
+        if others:
+            # 방향이 반대인 전략 점수는 공유하는 필터(거래대금·변동성 등) 때문에
+            # 올라간다. 근거로 오해하지 않도록 '참고' 라고 못박는다.
+            console.print(f"     [dim]참고 — 다른 전략: {others}[/]")
+        if row["gap"] < 0.05 and len(strategies) > 1:
+            console.print(
+                "     [yellow]전략끼리 점수가 비슷합니다 — 방향이 애매한 종목입니다.[/]"
+            )
     console.print(
-        "[dim]적합도는 여러 전략의 평균이 아니라 가장 잘 맞는 전략 하나의 점수입니다.[/]"
+        "[dim]적합도는 여러 전략의 평균이 아니라 가장 잘 맞는 전략 하나의 점수입니다.\n"
+        "다른 전략 점수는 공유하는 필터 때문에 올라갈 수 있어 근거가 못 됩니다.[/]"
     )
 
     if csv:

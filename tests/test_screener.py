@@ -125,7 +125,13 @@ def test_strategy_label_prefers_the_harder_strategy_on_a_tie(tmp_path, monkeypat
     assert (result["strategy"] == "어려움").all()
 
 
-def test_screen_multi_ranks_by_score_then_all_round_fit(tmp_path, monkeypatch):
+def test_screen_multi_ranks_by_score_then_conditions_actually_met(tmp_path, monkeypatch):
+    """동점은 '실제로 충족한 조건 비율' 로 가른다.
+
+    전략 평균(overall)으로 가르면, 방향이 반대인 전략에도 어중간하게 맞는
+    종목이 한 전략에 확실히 맞는 종목을 이긴다. 두 전략이 공유하는
+    방향 무관 필터(거래대금·변동성 등) 때문에 올라간 점수라 근거가 못 된다.
+    """
     from chartfinder.screener import screen_multi
 
     tickers = _demo_setup(tmp_path, monkeypatch, count=12)
@@ -135,8 +141,58 @@ def test_screen_multi_ranks_by_score_then_all_round_fit(tmp_path, monkeypatch):
          "C": [ConditionSpec("volume_surge")]},
         tickers=tickers,
     )
-    pairs = list(zip(result["score"], result["overall"]))
-    assert pairs == sorted(pairs, key=lambda p: (-p[0], -p[1]))
+    keys = list(zip(result["score"], result["matched_ratio"], result["gap"]))
+    assert keys == sorted(keys, key=lambda k: (-k[0], -k[1], -k[2]))
+
+
+def test_screen_multi_reports_how_many_conditions_were_met(tmp_path, monkeypatch):
+    """점수만으로는 왜 뽑혔는지 알 수 없다."""
+    from chartfinder.screener import screen_multi
+
+    tickers = _demo_setup(tmp_path, monkeypatch, count=8)
+    result = screen_multi(
+        "demo",
+        {"둘": [ConditionSpec("above_ma"), ConditionSpec("volume_surge")],
+         "하나": [ConditionSpec("near_low")]},
+        tickers=tickers,
+    )
+    sizes = {"둘": 2, "하나": 1}
+    for row in result.to_dict("records"):
+        assert row["of"] == sizes[row["strategy"]]
+        assert 0 <= row["matched"] <= row["of"]
+
+
+def test_gap_shows_whether_one_strategy_clearly_won(tmp_path, monkeypatch):
+    """방향이 반대인 전략에 비슷한 점수가 나면 애매한 종목이다."""
+    from chartfinder.screener import screen_multi
+
+    tickers = _demo_setup(tmp_path, monkeypatch, count=10)
+    result = screen_multi(
+        "demo",
+        {"고점": [ConditionSpec("near_high")], "바닥": [ConditionSpec("near_low")]},
+        tickers=tickers,
+    )
+    # 두 전략이 반대이므로 한쪽이 높으면 차이가 커야 한다
+    assert (result["gap"] >= 0).all()
+    assert result["gap"].max() > 0.5
+
+
+def test_overall_is_kept_only_as_a_reference_column(tmp_path, monkeypatch):
+    """평균은 남기되 참고용이라는 것이 저장 파일 머리글에 드러나야 한다.
+
+    방향이 반대인 전략끼리는 평균이 의미가 없다. 이름이 '전체 적합도' 면
+    근거로 오해하게 된다.
+    """
+    from chartfinder.screener import EXPORT_LABELS, screen_multi
+
+    tickers = _demo_setup(tmp_path, monkeypatch, count=8)
+    result = screen_multi(
+        "demo",
+        {"고점": [ConditionSpec("near_high")], "바닥": [ConditionSpec("near_low")]},
+        tickers=tickers,
+    )
+    assert "overall" in result.columns
+    assert "참고" in EXPORT_LABELS["overall"]
 
 
 def test_screen_multi_requires_at_least_one_strategy(tmp_path, monkeypatch):

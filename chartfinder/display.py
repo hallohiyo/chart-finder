@@ -33,3 +33,14 @@ def _money(value) -> str:
         return "-"
     value = float(value)
     return f"{value / 10_000:,.1f}조" if value >= 10_000 else f"{value:,.0f}억"
+
+
+def _matched(met, total) -> str:
+    """이긴 전략에서 충족한 조건 수. '5/9' 처럼 쓴다.
+
+    점수만 보면 왜 뽑혔는지 알 수 없다. 조건 9개 중 5개를 충족한 것과
+    2개만 충족하고 나머지가 근접 점수로 채워진 것은 다르다.
+    """
+    if _missing(met) or _missing(total) or not total:
+        return "-"
+    return f"{int(met)}/{int(total)}"

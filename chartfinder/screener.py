@@ -80,10 +80,13 @@ EXPORT_LABELS = {
     "score": "적합도",
     "strategy": "맞는 전략",
     "matched": "충족 조건수",
+    "of": "전체 조건수",
+    "gap": "2등 전략과 차이",
+    "matched_ratio": "충족 비율",
     "close": "현재가",
     "chg_pct": "등락률(%)",
     "date": "기준일",
-    "overall": "전체 적합도",
+    "overall": "전략 평균(참고용)",
     "turnover_20d": "거래대금 20일평균(억)",
     "marcap": "시가총액(억)",
     "foreign_net_5d": "외국인 순매수 5일(주)",
@@ -115,6 +118,11 @@ FACT_COLUMNS = [
     "inst_net_5d", "inst_net_20d",
     "both_buy_days_20d",
 ]
+
+
+def _cache_key(spec: "ConditionSpec") -> tuple:
+    """조건 점수 캐시 키. 같은 조건·같은 파라미터면 한 번만 계산한다."""
+    return (spec.key, tuple(sorted(spec.params.items())))
 
 
 def facts(df: pd.DataFrame, profile: dict[str, float] | None = None) -> dict[str, Any]:
@@ -271,7 +279,7 @@ def screen_multi(
         for label, specs in strategies.items():
             scores = {}
             for spec in specs:
-                key = (spec.key, tuple(sorted(spec.params.items())))
+                key = _cache_key(spec)
                 if key not in cache_by_key:
                     cache_by_key[key] = get_condition(spec.key).score(ctx, spec.params)
                 scores[spec.key] = cache_by_key[key]
@@ -285,8 +293,22 @@ def screen_multi(
         if best < min_score:
             continue
 
-        # 조건이 적은 전략은 만점이 쉬워 동점이 쏟아진다. 동점일 때는 다른
-        # 전략에도 두루 맞는 종목을 앞세운다.
+        # 이긴 전략에서 실제로 충족한 조건 수 / 전체. 조건이 적은 전략은 만점이
+        # 쉬워 동점이 쏟아지므로, 동점일 때는 '몇 개를 진짜로 맞췄는지' 로 가른다.
+        best_specs = strategies[best_label]
+        met = sum(
+            1 for spec in best_specs
+            if cache_by_key.get(_cache_key(spec), 0.0) >= STRICT_PASS
+        )
+        matched_ratio = met / len(best_specs) if best_specs else 0.0
+
+        # 2등 전략과의 차이. 크면 '이 전략 하나에 확실히 맞는' 종목이고,
+        # 작으면 방향이 반대인 전략에도 비슷한 점수가 난 애매한 종목이다.
+        others = sorted(per_strategy.values(), reverse=True)
+        gap = round(best - others[1], 4) if len(others) > 1 else round(best, 4)
+
+        # 전략 평균. 방향이 반대인 전략끼리는 평균이 의미가 없다 (공유하는
+        # 필터 때문에 올라간다). 그래서 순위에는 쓰지 않고 참고로만 남긴다.
         overall = sum(per_strategy.values()) / len(per_strategy)
 
         close = float(df["close"].iloc[-1])
@@ -296,9 +318,13 @@ def screen_multi(
             "name": names.get(ticker.symbol, ticker.symbol),
             "score": round(best, 4),
             "strategy": best_label,
+            "matched": met,
+            "of": len(best_specs),
+            "gap": gap,
             "close": close,
             "chg_pct": round((close / prev - 1.0) * 100.0, 2) if prev else 0.0,
             "date": df.index[-1].date(),
+            "matched_ratio": round(matched_ratio, 4),
             "overall": round(overall, 4),
         }
         row.update({f"p_{label}": round(value, 3) for label, value in per_strategy.items()})
@@ -306,7 +332,8 @@ def screen_multi(
         rows.append(row)
 
     columns = [
-        "symbol", "name", "score", "strategy", "close", "chg_pct", "date", "overall"
+        "symbol", "name", "score", "strategy", "matched", "of", "gap",
+        "close", "chg_pct", "date", "matched_ratio", "overall",
     ] + [f"p_{label}" for label in strategies]
     if not rows:
         return pd.DataFrame(columns=columns)
@@ -315,8 +342,12 @@ def screen_multi(
     frame = pd.DataFrame(rows)
     columns += [c for c in FACT_COLUMNS if c in frame.columns]
     result = frame[columns]
+    # overall(전략 평균) 로 동점을 가르면, 반대 방향 전략에도 어중간하게
+    # 맞는 종목이 한 전략에 확실히 맞는 종목을 이긴다. 공유하는 필터 때문에
+    # 올라간 점수이므로 근거가 못 된다. 실제로 충족한 조건 비율로 가른다.
     result = result.sort_values(
-        ["score", "overall", "chg_pct"], ascending=[False, False, False]
+        ["score", "matched_ratio", "gap", "chg_pct"],
+        ascending=[False, False, False, False],
     ).reset_index(drop=True)
     return result.head(top) if top else result
 

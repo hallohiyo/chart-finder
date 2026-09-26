@@ -51,9 +51,9 @@ def _duration(seconds: float) -> str:
 
 PRESET_DIR = presets_mod.default_dir()
 MARKETS = (("kr", "한국 주식"), ("us", "미국 주식"), ("demo", "연습용 (가짜 데이터)"))
-from chartfinder.display import _days, _money, _shares  # noqa: E402
+from chartfinder.display import _days, _matched, _money, _shares  # noqa: E402
 
-COLUMNS = ("순위", "종목명", "종목코드", "현재가", "등락", "적합도",
+COLUMNS = ("순위", "종목명", "종목코드", "현재가", "등락", "적합도", "충족",
            "외국인 5일", "기관 5일", "쌍끌이", "거래대금", "맞는 전략")
 #: 수집 기간 (년). 초보자에게 물어볼 값이 아니라 고정한다.
 YEARS = 2
@@ -189,9 +189,9 @@ class App(tk.Tk):
         scroll = ttk.Scrollbar(table, orient="vertical", command=self.tree.yview)
         self.tree.configure(yscrollcommand=scroll.set)
 
-        widths = {"순위": 44, "종목명": 160, "종목코드": 74, "현재가": 88, "등락": 66,
-                  "적합도": 62, "외국인 5일": 84, "기관 5일": 84, "쌍끌이": 58,
-                  "거래대금": 80, "맞는 전략": 130}
+        widths = {"순위": 42, "종목명": 150, "종목코드": 70, "현재가": 84, "등락": 62,
+                  "적합도": 58, "충족": 54, "외국인 5일": 80, "기관 5일": 80,
+                  "쌍끌이": 54, "거래대금": 76, "맞는 전략": 120}
         for col in COLUMNS:
             self.tree.heading(col, text=col)
             self.tree.column(
@@ -499,6 +499,7 @@ class App(tk.Tk):
                 "", "end",
                 values=(i, row["name"], row["symbol"], f"{row['close']:,.0f}",
                         f"{row['chg_pct']:+.2f}%", f"{row['score'] * 100:.0f}%",
+                        _matched(row.get("matched"), row.get("of")),
                         _shares(row.get("foreign_net_5d")),
                         _shares(row.get("inst_net_5d")),
                         _days(row.get("both_buy_days_20d")),
