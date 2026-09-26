@@ -51,7 +51,10 @@ def _duration(seconds: float) -> str:
 
 PRESET_DIR = presets_mod.default_dir()
 MARKETS = (("kr", "한국 주식"), ("us", "미국 주식"), ("demo", "연습용 (가짜 데이터)"))
-COLUMNS = ("순위", "종목명", "종목코드", "현재가", "등락", "적합도", "맞는 전략")
+from chartfinder.display import _days, _money, _shares  # noqa: E402
+
+COLUMNS = ("순위", "종목명", "종목코드", "현재가", "등락", "적합도",
+           "외국인 5일", "기관 5일", "쌍끌이", "거래대금", "맞는 전략")
 #: 수집 기간 (년). 초보자에게 물어볼 값이 아니라 고정한다.
 YEARS = 2
 #: 동시에 보낼 요청 수. 시세·수급·재무 모두 여기에 맞춰 병렬로 받는다.
@@ -186,8 +189,9 @@ class App(tk.Tk):
         scroll = ttk.Scrollbar(table, orient="vertical", command=self.tree.yview)
         self.tree.configure(yscrollcommand=scroll.set)
 
-        widths = {"순위": 46, "종목명": 190, "종목코드": 84, "현재가": 100, "등락": 74,
-                  "적합도": 74, "맞는 전략": 150}
+        widths = {"순위": 44, "종목명": 160, "종목코드": 74, "현재가": 88, "등락": 66,
+                  "적합도": 62, "외국인 5일": 84, "기관 5일": 84, "쌍끌이": 58,
+                  "거래대금": 80, "맞는 전략": 130}
         for col in COLUMNS:
             self.tree.heading(col, text=col)
             self.tree.column(
@@ -495,11 +499,16 @@ class App(tk.Tk):
                 "", "end",
                 values=(i, row["name"], row["symbol"], f"{row['close']:,.0f}",
                         f"{row['chg_pct']:+.2f}%", f"{row['score'] * 100:.0f}%",
+                        _shares(row.get("foreign_net_5d")),
+                        _shares(row.get("inst_net_5d")),
+                        _days(row.get("both_buy_days_20d")),
+                        _money(row.get("turnover_20d")),
                         row.get("strategy", "")),
             )
-        self.status.set(
-            f"{len(result)}종목을 찾았습니다. 적합도는 가장 잘 맞는 전략 기준입니다."
-        )
+        note = "적합도는 가장 잘 맞는 전략 기준입니다."
+        if "foreign_net_5d" not in result.columns:
+            note += " 수급 칸은 '데이터 받기' 에서 수급을 받으면 채워집니다."
+        self.status.set(f"{len(result)}종목을 찾았습니다. {note}")
 
     def _warn_unscored(self, result) -> None:
         """모든 종목에서 0점인 조건 = 그 데이터를 아직 받지 않았다는 뜻."""

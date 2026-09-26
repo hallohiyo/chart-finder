@@ -1,8 +1,8 @@
 name: 추천 구성 — 실적 우량주의 눌림목
 market: kr
 universe: all
-description: 측정된 신호(재무)로 고르고, 차트는 걸러내기와 타이밍에만 쓴다. 11개 조건.
-requires: [fundamentals, profiles]
+description: 측정된 신호(재무)로 고르고, 차트는 타이밍에만, 수급으로 확인한다. 13개 조건.
+requires: [fundamentals, profiles, flows]
 order: 5
 conditions:
   # ── 1단: 걸러내기 ────────────────────────────────────────────
@@ -65,3 +65,17 @@ conditions:
   - key: ma_pullback
     weight: 1.5
     params: {period: 20, max_gap: 3.0}
+
+  # ── 4단: 확인 (수급) ─────────────────────────────────────────
+  # 실적이 좋고 자리도 좋은데 외국인·기관이 담고 있으면 근거가 하나 더 붙는다.
+  # 다만 수급은 후행 지표다 — 이것만으로 뽑지 않고 확인용으로만 쓴다.
+
+  # 외국인과 기관이 같은 날 함께 담는지 (한쪽이 사고 다른 쪽이 파는 것과 다르다)
+  - key: both_net_buy
+    weight: 1.5
+    params: {days: 5}
+
+  # 얼마나 많이 — 상장주식수 대비 비중
+  - key: net_buy_ratio
+    weight: 1.5
+    params: {who: both, days: 20, min_pct: 0.3}

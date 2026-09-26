@@ -232,3 +232,10 @@ def test_presets_are_found_from_any_working_directory(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     assert default_dir().is_dir()
     assert load_all()  # 인자 없이도 찾아야 한다
+
+
+def test_table_has_the_flow_columns():
+    from chartfinder.simple_ui import COLUMNS
+
+    for column in ("외국인 5일", "기관 5일", "쌍끌이", "거래대금"):
+        assert column in COLUMNS

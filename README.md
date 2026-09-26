@@ -372,6 +372,19 @@ chartfinder update -m kr -u all --profiles
 자본잠식은 근접 점수를 주지 않고 0으로 자른다. 유보율 −60%는 기준에 "가까운"
 상태가 아니라 법적으로 구분되는 상태이기 때문이다.
 
+### 화면 표
+
+기본 화면 결과표에 점수와 함께 **수급 실제 숫자**가 같이 나온다.
+
+| 칸 | 내용 |
+|---|---|
+| 외국인 5일 / 기관 5일 | 5일 누적 순매수. `+1.9만`, `-4.8만` 처럼 부호를 남겨 순매도가 보인다 |
+| 쌍끌이 | 최근 20일 중 외국인·기관이 같은 날 함께 순매수한 날수 |
+| 거래대금 | 20일 평균 (`239억`, `1.2조`) |
+
+수급을 받지 않았으면 `-` 로 나온다. `0` 으로 채우면 "순매수가 0" 과
+"데이터를 안 받았다" 가 구분되지 않는다.
+
 ### 결과 저장 (엑셀)
 
 기본 화면의 **"결과 저장"**, 고급 화면의 **"CSV 저장"**, CLI 의 `--csv` 가 모두 같은
@@ -400,7 +413,7 @@ chartfinder update -m kr -u all --profiles
 
 | 파일 | 이름 | 조건 |
 |---|---|---|
-| `recommended.yaml` | 추천 구성 — 실적 우량주의 눌림목 | 11 (`--fundamentals --profiles`) |
+| `recommended.yaml` | 추천 구성 — 실적 우량주의 눌림목 | 13 (`--fundamentals --profiles --flows`) |
 | `delisting_risk.yaml` | 상장폐지 위험 회피 — 탈락 요건 점검 | 9 (`--fundamentals --profiles`) |
 | `accumulation.yaml` | 쌍끌이 매집 — 외국인·기관이 같이 담는 종목 | 8 (`--flows --profiles`) |
 | `bottom_strength.yaml` | 바닥권 + 상대강도 | 8 (`--profiles`) |
