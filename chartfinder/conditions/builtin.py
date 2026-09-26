@@ -1155,3 +1155,68 @@ def no_operating_loss_streak(ctx: Ctx, years: int) -> float:
     if series is None or len(series) < 2:
         return 0.0
     return float((series > 0).sum()) / len(series)
+
+
+# --------------------------------------------------------------------------- 유동성·위치·상대강도
+
+
+@condition(
+    "turnover_to_marcap", "시총 대비 거래대금", PROFILE,
+    params=(
+        _p("min_pct", "최소 (%)", "float", default=1.0, min=0.01, max=100.0, step=0.1),
+        _p("period", "평균 낼 일수", default=20, min=1, max=120),
+    ),
+    description="하루 거래대금을 시가총액으로 나눈 값. 시총 1조에 거래대금 50억(0.05%)인 "
+                "종목과 시총 2천억에 500억(2.5%)인 종목은 움직임이 전혀 다르다.",
+    min_bars=5,
+)
+def turnover_to_marcap(ctx: Ctx, min_pct: float, period: int) -> float:
+    marcap = ctx.profile("marcap")
+    turnover = ctx.last(ctx.turnover(period))
+    if not marcap or marcap <= 0 or turnover is None or turnover <= 0:
+        return 0.0
+    # 이 비율은 0.5%~25% 처럼 폭이 넓다. 허용폭을 넓게 잡으면 절반밖에 안 되는
+    # 종목도 0.5점을 받아 기준을 세운 의미가 없어진다.
+    return soft_gt(turnover / marcap * 100.0, min_pct, tol=max(min_pct * 0.3, 0.05))
+
+
+@condition(
+    "price_position", "기간 내 주가 위치", POSITION,
+    params=(
+        _p("period", "기준 일수", default=252, min=20, max=1000),
+        _p("low", "최소 위치 (%)", "float", default=0.0, min=0.0, max=100.0, step=5.0),
+        _p("high", "최대 위치 (%)", "float", default=30.0, min=0.0, max=100.0, step=5.0),
+    ),
+    description="52주 최저~최고를 0~100으로 보고 지금 어디인지. 0에 가까우면 바닥권, "
+                "100에 가까우면 신고가권. 바닥 반등과 신고가 돌파는 전략이 다르므로 "
+                "구간을 직접 정한다.",
+    min_bars=30,
+)
+def price_position(ctx: Ctx, period: int, low: float, high: float) -> float:
+    window = ctx.close.tail(period)
+    if len(window) < 20:
+        return 0.0
+    bottom, top = float(window.min()), float(window.max())
+    if top <= bottom:
+        return 0.0
+    position = (float(ctx.close.iloc[-1]) - bottom) / (top - bottom) * 100.0
+    return soft_between(position, low, high)
+
+
+@condition(
+    "relative_strength", "지수 대비 상대강도", MOMENTUM,
+    params=(
+        _p("period", "비교 일수", default=20, min=3, max=250),
+        _p("min_excess", "최소 초과수익 (%p)", "float",
+           default=0.0, min=-50.0, max=100.0, step=1.0),
+    ),
+    description="같은 기간 코스피/코스닥 지수보다 얼마나 더 올랐는지. 시장이 오를 때 "
+                "덜 오른 종목과 시장이 빠질 때 버틴 종목을 구분한다.",
+    min_bars=10,
+)
+def relative_strength(ctx: Ctx, period: int, min_excess: float) -> float:
+    own = ctx.own_return(period)
+    market = ctx.benchmark_return(period)
+    if own is None or market is None:
+        return 0.0
+    return soft_gt(own - market, min_excess, tol=max(abs(min_excess) * 0.5, 3.0))

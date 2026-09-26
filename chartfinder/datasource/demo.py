@@ -30,6 +30,7 @@ class DemoSource(DataSource):
     supports_flows = True  # 합성 수급 데이터가 일봉에 함께 들어 있다
     supports_fundamentals = True
     supports_profiles = True
+    benchmarks = {"DEMO": "DEMOIDX", "": "DEMOIDX"}
 
     def __init__(self, count: int = 60) -> None:
         self.count = count
@@ -59,6 +60,9 @@ class DemoSource(DataSource):
 
     def fetch_fundamentals(self, symbol: str) -> pd.DataFrame:
         return generate_fundamentals(symbol)
+
+    def fetch_index(self, symbol: str, start: date, end: date) -> pd.DataFrame:
+        return normalize_ohlcv(generate(symbol, start, end))
 
     def fetch_profiles(self, symbols: list[str], universe: str = "all") -> pd.DataFrame:
         self.profile_notes = {"합성 종목 정보": "받음"}

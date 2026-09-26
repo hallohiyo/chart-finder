@@ -26,6 +26,8 @@ class KrxSource(DataSource):
     supports_flows = True
     supports_fundamentals = True
     supports_profiles = True
+    #: 상대강도 비교 기준 — 코스피 종목은 코스피 지수와 견준다
+    benchmarks = {"KOSPI": "KS11", "KOSDAQ": "KQ11"}
 
     def __init__(self) -> None:
         import FinanceDataReader as fdr  # 지연 import: 네트워크 의존 모듈

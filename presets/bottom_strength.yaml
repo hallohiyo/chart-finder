@@ -1,0 +1,46 @@
+name: 바닥권 + 상대강도 — 빠졌지만 시장보다 버틴 종목
+market: kr
+universe: all
+description: 52주 하단 30% 안에 있으면서 지수보다 강한 종목. 같이 빠진 것과 혼자 버틴 것을 가른다.
+requires: [profiles]
+order: 15
+conditions:
+  # 52주 범위의 아래쪽 30% — 바닥권
+  - key: price_position
+    weight: 2.5
+    params: {period: 252, low: 0.0, high: 30.0}
+
+  # 바닥권인데도 지수보다 강하다 = 팔 사람이 줄었다는 뜻
+  - key: relative_strength
+    weight: 3.0
+    params: {period: 20, min_excess: 0.0}
+
+  # 단기선이 방향을 돌리는 중
+  - key: ma_turn_up
+    weight: 2.0
+    params: {period: 5, within: 3, confirm: 2}
+
+  # 상승 캔들 + 거래량 증가
+  - key: up_candle_volume
+    weight: 2.0
+    params: {period: 20, ratio: 1.5, min_gain: 0.0}
+
+  # 시총 대비 거래대금 — 실제로 돈이 들어오는지
+  - key: turnover_to_marcap
+    weight: 2.0
+    params: {min_pct: 0.5, period: 20}
+
+  # 죽은 종목 제외
+  - key: turnover_value
+    weight: 1.5
+    params: {min_value: 20.0, period: 20}
+
+  # 너무 안 움직이거나 너무 튀는 종목 제외
+  - key: atr_range
+    weight: 1.0
+    params: {period: 14, low: 2.0, high: 8.0}
+
+  # 잠재 매물
+  - key: low_dilution
+    weight: 1.5
+    params: {max_pct: 5.0}

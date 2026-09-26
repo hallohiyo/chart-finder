@@ -29,10 +29,12 @@ class Ctx:
         df: pd.DataFrame,
         fundamentals: pd.DataFrame | None = None,
         profile: dict[str, float] | None = None,
+        benchmark: pd.DataFrame | None = None,
     ) -> None:
         self.df = df
         self.fundamentals = fundamentals
         self._profile = profile or {}
+        self._benchmark = benchmark
         self._memo: dict[tuple, Any] = {}
 
     # ---------------------------------------------------------------- 기본 시세
@@ -84,6 +86,32 @@ class Ctx:
         except (TypeError, ValueError):
             return None
         return None if pd.isna(value) else value
+
+    def benchmark_return(self, period: int) -> float | None:
+        """비교 지수의 N일 수익률 (%). 지수를 안 받았으면 None.
+
+        종목의 마지막 거래일에 맞춰 자른다 — 종목이 거래정지였거나 지수 쪽이
+        더 최신이면 기간이 어긋나 상대강도가 엉뚱하게 나온다.
+        """
+        if self._benchmark is None or self._benchmark.empty:
+            return None
+        closes = self._benchmark["close"]
+        aligned = closes[closes.index <= self.df.index[-1]]
+        if len(aligned) <= period:
+            return None
+        past, now = float(aligned.iloc[-period - 1]), float(aligned.iloc[-1])
+        if past <= 0:
+            return None
+        return (now / past - 1.0) * 100.0
+
+    def own_return(self, period: int) -> float | None:
+        """종목 자신의 N일 수익률 (%)."""
+        if len(self.close) <= period:
+            return None
+        past, now = float(self.close.iloc[-period - 1]), float(self.close.iloc[-1])
+        if past <= 0:
+            return None
+        return (now / past - 1.0) * 100.0
 
     def turnover(self, period: int = 1) -> pd.Series:
         """거래대금 (종가 × 거래량). period 를 주면 그 기간 평균."""

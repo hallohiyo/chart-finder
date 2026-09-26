@@ -69,6 +69,19 @@ class DataSource(abc.ABC):
     supports_fundamentals: bool = False
     #: 종목 정보(시가총액·주식수·수급비중 등)를 받을 수 있는 소스인지
     supports_profiles: bool = False
+    #: {거래소 이름: 지수 심볼}. 상대강도를 재려면 비교 기준이 필요하다.
+    #: 빈 문자열 키는 거래소를 못 가릴 때 쓰는 기본값이다.
+    benchmarks: dict[str, str] = {}
+
+    def benchmark_for(self, exchange: str) -> str | None:
+        """이 종목을 어느 지수와 비교할지. KOSPI 종목은 KOSPI 와 비교한다."""
+        if not self.benchmarks:
+            return None
+        return self.benchmarks.get((exchange or "").upper()) or self.benchmarks.get("")
+
+    def fetch_index(self, symbol: str, start: date, end: date) -> pd.DataFrame:
+        """지수 일봉. 대개 종목과 같은 경로로 받는다."""
+        return self.fetch_ohlcv(symbol, start, end)
 
     def fetch_fundamentals(self, symbol: str) -> pd.DataFrame:
         """연간 재무 지표. 지원하지 않는 소스는 빈 프레임."""

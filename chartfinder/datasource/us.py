@@ -27,6 +27,8 @@ class UsSource(DataSource):
     batch_size = 100
     #: 시세는 위 배치로 받지만, 재무는 종목당 1회 요청이라 동시에 보내야 한다
     max_workers = 8
+    #: 상대강도 비교 기준 — 거래소를 가리지 않고 S&P 500 과 견준다
+    benchmarks = {"": "US500"}
 
     def __init__(self) -> None:
         import FinanceDataReader as fdr

@@ -8,9 +8,13 @@ from typing import Any, Callable, Iterable, Mapping
 import pandas as pd
 
 from . import cache
+from .datasource import get_source
 from .conditions import Ctx, get as get_condition
 from .conditions.builtin import FUNDAMENTAL as FUNDAMENTAL_CATEGORY
 from .conditions.builtin import PROFILE as PROFILE_CATEGORY
+
+#: 비교 지수를 필요로 하는 조건. 카테고리로는 구분되지 않아 이름으로 둔다.
+_BENCHMARK_CONDITIONS = frozenset({"relative_strength"})
 from .datasource import Ticker
 
 ProgressFn = Callable[[int, int], None]
@@ -63,10 +67,34 @@ def score_one(
     specs: Iterable[ConditionSpec],
     fundamentals: pd.DataFrame | None = None,
     profile: dict[str, float] | None = None,
+    benchmark: pd.DataFrame | None = None,
 ) -> dict[str, float]:
     """종목 하나에 대한 조건별 점수."""
-    ctx = Ctx(df, fundamentals, profile)
+    ctx = Ctx(df, fundamentals, profile, benchmark)
     return {spec.key: get_condition(spec.key).score(ctx, spec.params) for spec in specs}
+
+
+def _benchmarks_for(market: str, specs: Iterable[ConditionSpec]) -> dict[str, pd.DataFrame]:
+    """상대강도 조건이 있을 때만 지수를 읽는다. {지수이름: 일봉}."""
+    if not any(spec.key in _BENCHMARK_CONDITIONS for spec in specs):
+        return {}
+    source = get_source(market)
+    frames: dict[str, pd.DataFrame] = {}
+    for name in set((getattr(source, "benchmarks", None) or {}).values()):
+        frame = cache.load_index(market, name)
+        if frame is not None:
+            frames[name] = frame
+    return frames
+
+
+def _benchmark_of(
+    market: str, frames: dict[str, pd.DataFrame], exchange: str
+) -> pd.DataFrame | None:
+    """그 종목이 속한 거래소의 지수를 골라 준다 (코스피 종목 → 코스피 지수)."""
+    if not frames:
+        return None
+    name = get_source(market).benchmark_for(exchange)
+    return frames.get(name) if name else None
 
 
 def _profiles_for(
@@ -133,6 +161,7 @@ def screen_multi(
         get_condition(spec.key).category == FUNDAMENTAL_CATEGORY for spec in all_specs
     )
     profiles = _profiles_for(market, all_specs)
+    benchmarks = _benchmarks_for(market, all_specs)
 
     rows: list[dict[str, Any]] = []
     for i, ticker in enumerate(tickers, start=1):
@@ -145,7 +174,12 @@ def screen_multi(
         fundamentals = (
             cache.load_fundamentals(market, ticker.symbol) if needs_fundamentals else None
         )
-        ctx = Ctx(df, fundamentals, _profile_of(profiles, ticker.symbol))
+        ctx = Ctx(
+            df,
+            fundamentals,
+            _profile_of(profiles, ticker.symbol),
+            _benchmark_of(market, benchmarks, ticker.exchange),
+        )
         # 조건 점수는 전략끼리 공유한다 (같은 조건을 두 번 계산하지 않도록)
         cache_by_key: dict[tuple, float] = {}
 
@@ -226,6 +260,7 @@ def screen(
         get_condition(spec.key).category == FUNDAMENTAL_CATEGORY for spec in specs
     )
     profiles = _profiles_for(market, specs)
+    benchmarks = _benchmarks_for(market, specs)
 
     rows: list[dict[str, Any]] = []
     total = len(tickers)
@@ -237,7 +272,11 @@ def screen(
             continue
 
         fundamentals = cache.load_fundamentals(market, ticker.symbol) if needs_fundamentals else None
-        scores = score_one(df, specs, fundamentals, _profile_of(profiles, ticker.symbol))
+        scores = score_one(
+            df, specs, fundamentals,
+            _profile_of(profiles, ticker.symbol),
+            _benchmark_of(market, benchmarks, ticker.exchange),
+        )
         total_score = combine(scores, specs)
         if strict and any(s < STRICT_PASS for s in scores.values()):
             continue

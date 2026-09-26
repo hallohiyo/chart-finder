@@ -58,6 +58,12 @@ def _fundamental_path(market: str, symbol: str) -> Path:
     return path
 
 
+def _index_path(market: str, name: str) -> Path:
+    path = cache_home() / "indices" / f"{market}_{name}.parquet"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    return path
+
+
 def _profile_path(market: str) -> Path:
     path = cache_home() / "profiles" / f"{market}.parquet"
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -170,6 +176,67 @@ def update_fundamentals(
                 progress(done, total, symbol)
     if progress:
         progress(total, total, "")
+    return stats
+
+
+# --------------------------------------------------------------------------- 지수
+
+
+def load_index(market: str, name: str) -> pd.DataFrame | None:
+    """지수 일봉. 상대강도 계산의 비교 기준이다."""
+    path = _index_path(market, name)
+    if not path.exists():
+        return None
+    try:
+        df = pd.read_parquet(path)
+    except Exception:
+        return None
+    return None if df.empty else df
+
+
+def has_indices(market: str) -> bool:
+    source = get_source(market)
+    names = set((getattr(source, "benchmarks", None) or {}).values())
+    return bool(names) and all(load_index(market, n) is not None for n in names)
+
+
+def update_indices(
+    market: str, years: float = 2.0, force: bool = False
+) -> dict[str, object]:
+    """비교 기준 지수를 받아 캐시한다.
+
+    지수는 거래소마다 하나뿐이라 요청이 1~2회다. 종목 수와 무관하게 싸다.
+    """
+    source = get_source(market)
+    names = sorted(set((getattr(source, "benchmarks", None) or {}).values()))
+    if not names:
+        return {"updated": 0, "error": f"{market} 시장은 비교 지수가 없습니다."}
+
+    today = date.today()
+    fetch_end = today + timedelta(days=1)
+    full_start = today - timedelta(days=int(365.25 * years) + 40)
+
+    stats: dict[str, object] = {"updated": 0, "failed": 0}
+    for name in names:
+        existing = None if force else load_index(market, name)
+        # 지수도 종목과 같은 이유로 소급이 필요하다 (-y 를 늘렸을 때)
+        start = full_start
+        if existing is not None and existing.index[0].date() <= full_start + timedelta(
+            days=BACKFILL_SLACK_DAYS
+        ):
+            start = existing.index[-1].date() - timedelta(days=OVERLAP_DAYS)
+        try:
+            fetched = source.fetch_index(name, start, fetch_end)
+        except Exception as exc:
+            stats["failed"] += 1
+            stats.setdefault("error", f"{name}: {type(exc).__name__}: {exc}")
+            continue
+        if fetched is None or fetched.empty:
+            stats["failed"] += 1
+            stats.setdefault("error", f"{name}: 지수 응답이 비어 있습니다.")
+            continue
+        merge(existing, fetched).to_parquet(_index_path(market, name))
+        stats["updated"] += 1
     return stats
 
 
@@ -393,6 +460,14 @@ def update(
 
     want_flows = flows and getattr(source, "supports_flows", False)
     last_session = _last_expected_session(today)
+
+    # 비교 지수는 거래소마다 하나뿐이라 요청이 1~2회다. 상대강도 조건이
+    # 조용히 0점이 되는 것을 막으려고 시세를 받을 때 같이 받아 둔다.
+    if getattr(source, "benchmarks", None):
+        index_stats = update_indices(market, years=years, force=force)
+        stats["indices"] = index_stats.get("updated", 0)
+        if index_stats.get("error"):
+            stats["index_error"] = index_stats["error"]
 
     # 어디까지 받아야 하는지에 따라 종목을 묶는다 (배치 다운로드용)
     buckets: dict[date, list[str]] = {}

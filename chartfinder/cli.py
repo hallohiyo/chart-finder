@@ -152,6 +152,8 @@ def update_cache(
         f"[green]완료[/] 갱신 {stats['updated']} · 최신 {stats['skipped']} · "
         f"실패 {stats['failed']} [dim]({elapsed:.0f}초{rate} · 동시 {effective}개)[/]"
     )
+    if stats.get("indices"):
+        summary += f" · 지수 {stats['indices']}"
     if stats.get("backfilled"):
         summary += f" · 과거 소급 {stats['backfilled']}"
     if flows:
@@ -215,6 +217,12 @@ def update_cache(
             for name, note in (getattr(source, "profile_notes", {}) or {}).items():
                 style = "dim" if note == "받음" else "yellow"
                 console.print(f"[{style}]  {name}: {note}[/]")
+
+    if stats.get("index_error"):
+        console.print(
+            f"[yellow]비교 지수를 받지 못했습니다:[/] {stats['index_error']} "
+            "[dim]— 상대강도 조건이 0점이 됩니다.[/]"
+        )
 
     if flows and stats.get("flow_error"):
         console.print(f"[yellow]수급을 받지 못한 종목이 있습니다:[/] {stats['flow_error']}")
