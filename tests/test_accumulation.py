@@ -222,3 +222,67 @@ def test_export_rounds_the_price():
 
     frame = pd.DataFrame({"symbol": ["A"], "close": [596_612.8414485113]})
     assert export_frame(frame)["현재가"].iloc[0] == 596_612.84
+
+
+def test_real_numbers_come_before_the_strategy_score_columns(tmp_path, monkeypatch):
+    """전략을 많이 고르면 p_ 컬럼이 그만큼 늘어난다.
+
+    실제 숫자를 그 뒤에 두면 엑셀에서 30열 밖으로 밀려 안 보인다.
+    """
+    monkeypatch.setenv("CHARTFINDER_HOME", str(tmp_path))
+    from chartfinder import cache
+    from chartfinder.datasource import get_source
+    from chartfinder.screener import ConditionSpec, screen_multi
+
+    symbols = [t.symbol for t in get_source("demo").list_tickers()][:6]
+    cache.update("demo", symbols=symbols, years=1, flows=True)
+    cache.update_profiles("demo", symbols=symbols)
+
+    # 전략 열 개를 고른 상황
+    strategies = {
+        f"전략{i}": [ConditionSpec("above_ma"), ConditionSpec("volume_surge")]
+        for i in range(10)
+    }
+    result = screen_multi("demo", strategies, tickers=cache.get_tickers("demo", "all")[:6])
+
+    columns = list(result.columns)
+    turnover = columns.index("turnover_20d")
+    first_strategy = min(i for i, c in enumerate(columns) if c.startswith("p_"))
+    assert turnover < first_strategy, "거래대금이 전략 점수 뒤로 밀렸다"
+    # 엑셀 첫 화면에 들어와야 한다
+    assert turnover < 12
+
+
+def test_screen_puts_real_numbers_before_condition_scores(tmp_path, monkeypatch):
+    monkeypatch.setenv("CHARTFINDER_HOME", str(tmp_path))
+    from chartfinder import cache
+    from chartfinder.datasource import get_source
+    from chartfinder.screener import ConditionSpec, screen
+
+    symbols = [t.symbol for t in get_source("demo").list_tickers()][:6]
+    cache.update("demo", symbols=symbols, years=1, flows=True)
+
+    specs = [ConditionSpec("above_ma"), ConditionSpec("volume_surge")]
+    result = screen("demo", specs, tickers=cache.get_tickers("demo", "all")[:6])
+
+    columns = list(result.columns)
+    assert columns.index("turnover_20d") < columns.index("s_above_ma")
+
+
+def test_empty_result_keeps_the_same_column_order(tmp_path, monkeypatch):
+    """종목이 하나도 안 나올 때도 컬럼 순서가 같아야 한다."""
+    monkeypatch.setenv("CHARTFINDER_HOME", str(tmp_path))
+    from chartfinder import cache
+    from chartfinder.datasource import get_source
+    from chartfinder.screener import ConditionSpec, screen_multi
+
+    symbols = [t.symbol for t in get_source("demo").list_tickers()][:4]
+    cache.update("demo", symbols=symbols, years=1)
+
+    empty = screen_multi(
+        "demo", {"A": [ConditionSpec("above_ma")]},
+        tickers=cache.get_tickers("demo", "all")[:4], min_score=1.1,
+    )
+    assert empty.empty
+    columns = list(empty.columns)
+    assert columns.index("turnover_20d") < columns.index("p_A")

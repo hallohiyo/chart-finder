@@ -376,16 +376,24 @@ def screen_multi(
         row.update(facts(df, _profile_of(profiles, ticker.symbol)))
         rows.append(row)
 
-    columns = [
-        "symbol", "name", "score", "strategy", "matched", "of", "gap",
-        "close", "chg_pct", "date", "matched_ratio", "overall",
-    ] + [f"p_{label}" for label in strategies]
+    # 엑셀에서 바로 보이는 순서로 짠다. 전략 점수(p_...)는 전략마다 한 칸씩
+    # 늘어나므로, 실제 숫자를 그 뒤에 두면 열 30번대로 밀려 안 보인다.
+    head = ["symbol", "name", "score", "strategy", "matched", "of",
+            "close", "chg_pct"]
+    tail = ["date", "gap", "matched_ratio", "overall"]
     if not rows:
-        return pd.DataFrame(columns=columns)
+        return pd.DataFrame(
+            columns=head + FACT_COLUMNS + tail + [f"p_{label}" for label in strategies]
+        )
 
     # 실제 숫자 컬럼은 데이터가 있을 때만 생긴다 (수급을 안 받으면 없다)
     frame = pd.DataFrame(rows)
-    columns += [c for c in FACT_COLUMNS if c in frame.columns]
+    columns = (
+        head
+        + [c for c in FACT_COLUMNS if c in frame.columns]
+        + tail
+        + [f"p_{label}" for label in strategies]
+    )
     result = frame[columns]
     # overall(전략 평균) 로 동점을 가르면, 반대 방향 전략에도 어중간하게
     # 맞는 종목이 한 전략에 확실히 맞는 종목을 이긴다. 공유하는 필터 때문에
@@ -462,14 +470,18 @@ def screen(
         row.update(facts(df, _profile_of(profiles, ticker.symbol)))
         rows.append(row)
 
-    columns = ["symbol", "name", "score", "matched", "close", "chg_pct", "date"] + [
-        f"s_{label}" for label in score_labels(specs)
-    ]
+    head = ["symbol", "name", "score", "matched", "close", "chg_pct"]
+    scores_cols = [f"s_{label}" for label in score_labels(specs)]
     if not rows:
-        return pd.DataFrame(columns=columns)
+        return pd.DataFrame(columns=head + FACT_COLUMNS + ["date"] + scores_cols)
 
     frame = pd.DataFrame(rows)
-    columns += [c for c in FACT_COLUMNS if c in frame.columns]
+    columns = (
+        head
+        + [c for c in FACT_COLUMNS if c in frame.columns]
+        + ["date"]
+        + scores_cols
+    )
     result = frame[columns]
     result = result.sort_values(
         ["score", "matched", "chg_pct"], ascending=[False, False, False]
