@@ -321,6 +321,7 @@ chartfinder update -m kr -u all --profiles
 
 | 파일 | 이름 | 조건 |
 |---|---|---|
+| `recommended.yaml` | 추천 구성 — 실적 우량주의 눌림목 | 11 (`--fundamentals --profiles`) |
 | `pullback_buy.yaml` | 눌림목 — 상승 중 잠시 쉬어가는 종목 | 4 |
 | `oversold_rebound.yaml` | 과매도 반등 — 많이 빠진 뒤 돌아설 자리 | 4 |
 | `bottom_reversal_noflow.yaml` | 바닥 반등 종합 — 여러 지표가 동시에 신호 | 17 |

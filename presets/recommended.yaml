@@ -1,0 +1,67 @@
+name: 추천 구성 — 실적 우량주의 눌림목
+market: kr
+universe: all
+description: 측정된 신호(재무)로 고르고, 차트는 걸러내기와 타이밍에만 쓴다. 11개 조건.
+requires: [fundamentals, profiles]
+order: 5
+conditions:
+  # ── 1단: 걸러내기 ────────────────────────────────────────────
+  # 예측이 아니라 '살 수 없는 종목'을 빼는 일이다. 여기가 제일 확실하다.
+
+  # 못 팔면 아무 의미가 없다. 하루 30억은 최소선이다.
+  - key: turnover_value
+    weight: 2.0
+    params: {min_value: 30.0, period: 20}
+
+  # 동전주는 호가 단위가 커서 수수료만 나간다
+  - key: price_range
+    weight: 1.0
+    params: {low: 2000.0, high: 500000.0}
+
+  # CB·BW·유상증자 폭탄은 실적이 좋아도 주식 수가 늘어난다
+  - key: low_dilution
+    weight: 1.5
+    params: {max_pct: 5.0}
+
+  # ── 2단: 고르기 (재무) ───────────────────────────────────────
+  # 백테스트에서 유일하게 신호가 나온 부분이다 (IC t=+2.86).
+  # 그래서 가중치를 여기에 몰아 준다.
+
+  - key: revenue_growth
+    weight: 3.0
+    params: {years: 3, min_growth: 0.0}
+
+  - key: operating_income_growth
+    weight: 3.0
+    params: {years: 3, min_growth: 0.0}
+
+  - key: operating_margin
+    weight: 2.5
+    params: {min_margin: 8.0, years: 3}
+
+  - key: debt_ratio
+    weight: 2.5
+    params: {max_ratio: 100.0, years: 3}
+
+  - key: roe
+    weight: 2.5
+    params: {min_roe: 10.0, years: 3}
+
+  - key: positive_cash_flow
+    weight: 2.5
+    params: {years: 3}
+
+  # ── 3단: 타이밍 (차트, 2개만) ────────────────────────────────
+  # 차트 조건을 쌓을수록 서로 모순돼(과매도 + 정배열 + 신고가 근접은
+  # 동시에 성립하기 어렵다) 점수가 평준화되고 순위가 무의미해진다.
+  # 그래서 '하락추세 회피' 와 '싸게 사기' 딱 두 가지만 남긴다.
+
+  # 120일선 위 — 장기 추세가 꺾인 종목은 실적이 좋아도 산 뒤에 더 빠진다
+  - key: above_ma
+    weight: 1.5
+    params: {period: 120, margin: 0.0}
+
+  # 20일선까지 밀린 자리 — 추세는 살아 있는데 단기 조정인 구간
+  - key: ma_pullback
+    weight: 1.5
+    params: {period: 20, max_gap: 3.0}
