@@ -145,6 +145,10 @@ def generate_fundamentals(symbol: str, years: int = 5) -> pd.DataFrame:
                 "net_income": net,
                 "debt_ratio": np.clip(rng.normal(rng.uniform(30, 180), 15, years), 5, 500),
                 "roe": net / equity * 100.0,
+                # 일부 종목은 자본잠식(유보율 음수) 상태로 만들어 위험 조건을 시험한다
+                "reserve_ratio": np.clip(
+                    rng.normal(rng.uniform(-80, 900), 60, years), -200, 5000
+                ),
                 "operating_cash_flow": operating * rng.uniform(0.6, 1.4, years),
             },
             index=periods,

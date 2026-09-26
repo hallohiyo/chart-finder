@@ -1086,3 +1086,72 @@ def low_dilution(ctx: Ctx, max_pct: float) -> float:
     if pct is None:
         return 0.0
     return soft_lt(pct, max_pct, tol=max(max_pct * 0.8, 2.0))
+
+
+# --------------------------------------------------------------------------- 상장폐지 위험
+#
+# 관리종목·상장폐지 요건 상당수는 숫자로 정해져 있어 기계적으로 확인된다.
+# 여기 조건들은 "좋은 종목 고르기" 가 아니라 "탈락 위험 종목 빼기" 용이다.
+# 기준 수치는 바뀌므로 거래소 공시로 확인해야 한다.
+#
+# 이 조건들로 볼 수 없는 것: 감사의견(의견거절·부적정), 관리종목 지정 여부,
+# 주식분산 요건. 감사의견은 실제 상장폐지 사유 중 큰 비중이므로, 이 필터를
+# 통과했다고 안전하다고 볼 수 없다.
+
+
+@condition(
+    "revenue_floor", "매출액 하한", FUNDAMENTAL,
+    params=(
+        _p("min_revenue", "최소 매출액 (억원)", "float",
+           default=100.0, min=1.0, max=100000.0, step=10.0),
+        _p("years", "확인 연수", default=1, min=1, max=10),
+    ),
+    description="매출액이 기준 이상. 코스피 50억·코스닥 30억 미만은 관리종목 지정 "
+                "사유이므로, 여유를 두고 그 위를 본다.",
+    min_bars=1,
+)
+def revenue_floor(ctx: Ctx, min_revenue: float, years: int) -> float:
+    series = ctx.fundamental("revenue", years)
+    if series is None:
+        return 0.0
+    # 네이버·DART 매출액 단위는 억원이다
+    return soft_gt(float(series.min()), min_revenue, tol=max(min_revenue * 0.5, 10.0))
+
+
+@condition(
+    "no_capital_impairment", "자본잠식 아님", FUNDAMENTAL,
+    params=(
+        _p("min_reserve", "최소 유보율 (%)", "float",
+           default=100.0, min=-100.0, max=5000.0, step=50.0),
+        _p("years", "확인 연수", default=1, min=1, max=10),
+    ),
+    description="유보율이 기준 이상. 유보율이 음수면 결손금이 자본금을 깎아먹은 "
+                "자본잠식 상태다. 자본금 50% 이상 잠식은 관리종목, 전액 잠식은 "
+                "상장폐지 사유다.",
+    min_bars=1,
+)
+def no_capital_impairment(ctx: Ctx, min_reserve: float, years: int) -> float:
+    series = ctx.fundamental("reserve_ratio", years)
+    if series is None:
+        return 0.0
+    worst = float(series.min())
+    # 유보율이 음수면 이미 자본잠식이다. 이건 기준에 '가까운' 상태가 아니라
+    # 법적으로 구분되는 상태이므로 근접 점수를 주지 않고 0으로 자른다.
+    if worst < 0:
+        return 0.0
+    return soft_gt(worst, min_reserve, tol=max(abs(min_reserve), 50.0))
+
+
+@condition(
+    "no_operating_loss_streak", "영업손실 연속 아님", FUNDAMENTAL,
+    params=(_p("years", "확인 연수", default=3, min=2, max=10),),
+    description="최근 N년 중 영업이익이 흑자인 해의 비율. 코스닥은 4년 연속 "
+                "영업손실이면 관리종목이다. 네이버는 3개 연도만 주므로 4년 확인은 "
+                "DART 가 있어야 한다.",
+    min_bars=1,
+)
+def no_operating_loss_streak(ctx: Ctx, years: int) -> float:
+    series = ctx.fundamental("operating_income", years)
+    if series is None or len(series) < 2:
+        return 0.0
+    return float((series > 0).sum()) / len(series)

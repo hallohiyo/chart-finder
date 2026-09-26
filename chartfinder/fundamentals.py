@@ -19,6 +19,7 @@ FUNDAMENTAL_COLUMNS = [
     "operating_margin",   # 영업이익률 (%)
     "debt_ratio",         # 부채비율 (%)
     "roe",                # 자기자본이익률 (%)
+    "reserve_ratio",      # 유보율 (%) — 음수면 자본금이 잠식된 상태다
     "operating_cash_flow",  # 영업활동현금흐름
 ]
 
@@ -30,6 +31,9 @@ ALIASES = {
     "operating_margin": ("영업이익률", "operatingmargin"),
     "debt_ratio": ("부채비율", "debtratio"),
     "roe": ("roe", "자기자본이익률"),
+    # 유보율 = 잉여금 ÷ 자본금. 음수면 결손금이 자본금을 깎아먹은 것이라
+    # 자본잠식 여부를 보는 대용 지표가 된다 (자본금·자본총계는 네이버가 안 준다).
+    "reserve_ratio": ("유보율", "reserveratio", "retentionratio"),
     "operating_cash_flow": (
         "영업활동현금흐름", "영업활동으로인한현금흐름", "operatingcashflow",
         "cashflowfromcontinuingoperatingactivities", "totalcashfromoperatingactivities",

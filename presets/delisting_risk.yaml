@@ -1,0 +1,55 @@
+name: 상장폐지 위험 회피 — 탈락 요건 점검
+market: kr
+universe: all
+description: 매출액·자본잠식·영업손실·시가총액·유동성을 숫자로 점검. 감사의견은 볼 수 없다.
+requires: [fundamentals, profiles]
+order: 7
+conditions:
+  # 1. 매출액 미달 (코스피 50억·코스닥 30억 미만 → 관리종목)
+  #    여유를 두고 100억 위를 본다
+  - key: revenue_floor
+    weight: 3.0
+    params: {min_revenue: 100.0, years: 1}
+
+  # 2. 자본잠식 (자본금 50% 잠식 → 관리종목, 전액 잠식 → 상장폐지)
+  #    유보율이 음수면 이미 잠식이 시작된 것이다
+  - key: no_capital_impairment
+    weight: 3.0
+    params: {min_reserve: 100.0, years: 1}
+
+  # 3. 영업손실 연속 (코스닥 4년 연속 → 관리종목)
+  #    네이버는 3개 연도만 주므로 3년으로 본다
+  - key: no_operating_loss_streak
+    weight: 2.5
+    params: {years: 3}
+
+  # 4. 부채비율 — 요건은 아니지만 자본잠식으로 가는 길이다
+  - key: debt_ratio
+    weight: 1.5
+    params: {max_ratio: 200.0, years: 1}
+
+  # 5. 영업현금흐름 — 장부상 흑자라도 현금이 안 들어오면 버티지 못한다
+  - key: positive_cash_flow
+    weight: 2.0
+    params: {years: 3}
+
+  # 6. 시가총액 미달 (코스피 50억·코스닥 40억 → 관리종목)
+  #    500억 위를 본다
+  - key: market_cap
+    weight: 2.0
+    params: {low: 500.0, high: 5000000.0}
+
+  # 7. 거래량 미달 (반기 월평균거래량이 유동주식수 1% 미만 → 관리종목)
+  - key: share_turnover
+    weight: 1.5
+    params: {low: 0.3, high: 500.0, period: 60}
+
+  # 8. 거래대금 — 실질적으로 거래가 되는지
+  - key: turnover_value
+    weight: 1.5
+    params: {min_value: 10.0, period: 20}
+
+  # 9. CB/BW/유상증자 — 자본잠식 회사가 흘게 쓰는 수단이다
+  - key: low_dilution
+    weight: 1.5
+    params: {max_pct: 10.0}
