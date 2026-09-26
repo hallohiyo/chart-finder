@@ -38,3 +38,30 @@ def test_recommended_preset_includes_flow_confirmation():
     keys = {spec.key for spec in preset.conditions}
     assert {"both_net_buy", "net_buy_ratio"} <= keys
     assert preset.needs_flows and preset.needs_fundamentals and preset.needs_profiles
+
+
+def test_net_buy_amount_keeps_its_sign_and_unit():
+    """순매수 금액은 부호와 단위가 함께 있어야 읽힌다."""
+    from chartfinder.display import _signed_money
+
+    assert _signed_money(12.5) == "+12억"
+    assert _signed_money(-25.5) == "-26억"
+    assert _signed_money(15_000) == "+1.5조"
+    assert _signed_money(None) == "-"
+
+
+def test_small_amounts_keep_one_decimal_so_they_are_not_rounded_to_zero():
+    """0.4억을 '+0억' 으로 쓰면 순매수가 없는 것처럼 보인다."""
+    from chartfinder.display import _signed_money
+
+    assert _signed_money(0.4) == "+0.4억"
+    assert _signed_money(-0.3) == "-0.3억"
+
+
+def test_flow_amount_columns_are_labelled_in_won_not_shares():
+    from chartfinder.screener import EXPORT_LABELS
+
+    assert EXPORT_LABELS["foreign_value_5d"] == "외국인 순매수 5일(억)"
+    assert EXPORT_LABELS["inst_value_20d"] == "기관 순매수 20일(억)"
+    # 주식 수 컬럼도 단위를 명시해 둔다
+    assert "(주)" in EXPORT_LABELS["foreign_net_5d"]

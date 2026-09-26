@@ -28,11 +28,29 @@ def _days(value) -> str:
 
 
 def _money(value) -> str:
-    """거래대금(억원)."""
+    """금액(억원). 1조를 넘으면 단위를 바꾼다."""
     if _missing(value):
         return "-"
     value = float(value)
-    return f"{value / 10_000:,.1f}조" if value >= 10_000 else f"{value:,.0f}억"
+    if abs(value) >= 10_000:
+        return f"{value / 10_000:,.1f}조"
+    return f"{value:,.0f}억"
+
+
+def _signed_money(value) -> str:
+    """순매수 금액(억원). 부호를 남겨 순매도를 구분한다.
+
+    주식 수로 쓰면 종목마다 주가가 달라 서로 비교가 안 된다 —
+    1만주가 어떤 종목엔 1억이고 어떤 종목엔 200억이다.
+    """
+    if _missing(value):
+        return "-"
+    value = float(value)
+    if abs(value) >= 10_000:
+        return f"{value / 10_000:+,.1f}조"
+    if abs(value) < 1:
+        return f"{value:+,.1f}억"
+    return f"{value:+,.0f}억"
 
 
 def _matched(met, total) -> str:

@@ -51,10 +51,14 @@ def _duration(seconds: float) -> str:
 
 PRESET_DIR = presets_mod.default_dir()
 MARKETS = (("kr", "한국 주식"), ("us", "미국 주식"), ("demo", "연습용 (가짜 데이터)"))
-from chartfinder.display import _days, _matched, _money, _shares  # noqa: E402
+from chartfinder.display import (  # noqa: E402
+    _days, _matched, _money, _signed_money,
+)
 
 COLUMNS = ("순위", "종목명", "종목코드", "현재가", "등락", "적합도", "충족",
            "외국인 5일", "기관 5일", "쌍끌이", "거래대금", "맞는 전략")
+#: 수급 칸은 주식 수가 아니라 금액(억원)이다. 1만주가 어떤 종목엔 1억이고
+#: 어떤 종목엔 200억이라, 주식 수로는 종목끼리 비교가 안 된다.
 #: 수집 기간 (년). 초보자에게 물어볼 값이 아니라 고정한다.
 YEARS = 2
 #: 동시에 보낼 요청 수. 시세·수급·재무 모두 여기에 맞춰 병렬로 받는다.
@@ -500,14 +504,14 @@ class App(tk.Tk):
                 values=(i, row["name"], row["symbol"], f"{row['close']:,.0f}",
                         f"{row['chg_pct']:+.2f}%", f"{row['score'] * 100:.0f}%",
                         _matched(row.get("matched"), row.get("of")),
-                        _shares(row.get("foreign_net_5d")),
-                        _shares(row.get("inst_net_5d")),
+                        _signed_money(row.get("foreign_value_5d")),
+                        _signed_money(row.get("inst_value_5d")),
                         _days(row.get("both_buy_days_20d")),
                         _money(row.get("turnover_20d")),
                         row.get("strategy", "")),
             )
         note = "적합도는 가장 잘 맞는 전략 기준입니다."
-        if "foreign_net_5d" not in result.columns:
+        if "foreign_value_5d" not in result.columns:
             note += " 수급 칸은 '데이터 받기' 에서 수급을 받으면 채워집니다."
         self.status.set(f"{len(result)}종목을 찾았습니다. {note}")
 

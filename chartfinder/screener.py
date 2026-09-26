@@ -101,6 +101,10 @@ EXPORT_LABELS = {
     "overall": "전략 평균(참고용)",
     "turnover_20d": "거래대금 20일평균(억)",
     "marcap": "시가총액(억)",
+    "foreign_value_5d": "외국인 순매수 5일(억)",
+    "foreign_value_20d": "외국인 순매수 20일(억)",
+    "inst_value_5d": "기관 순매수 5일(억)",
+    "inst_value_20d": "기관 순매수 20일(억)",
     "foreign_net_5d": "외국인 순매수 5일(주)",
     "foreign_net_20d": "외국인 순매수 20일(주)",
     "inst_net_5d": "기관 순매수 5일(주)",
@@ -126,9 +130,12 @@ def export_frame(result: pd.DataFrame) -> pd.DataFrame:
 #: 점수가 아닌 실제 숫자 컬럼의 표시 순서
 FACT_COLUMNS = [
     "turnover_20d", "marcap",
+    # 금액을 앞에 둔다. 주식 수는 종목마다 주가가 달라 서로 비교가 안 된다
+    "foreign_value_5d", "foreign_value_20d",
+    "inst_value_5d", "inst_value_20d",
+    "both_buy_days_20d",
     "foreign_net_5d", "foreign_net_20d",
     "inst_net_5d", "inst_net_20d",
-    "both_buy_days_20d",
 ]
 
 
@@ -178,11 +185,17 @@ def facts(df: pd.DataFrame, profile: dict[str, float] | None = None) -> dict[str
     for column, label in (("foreign_net", "foreign"), ("inst_net", "inst")):
         if column not in df.columns:
             continue
-        series = pd.to_numeric(df[column], errors="coerce").dropna()
-        if series.empty:
+        series = pd.to_numeric(df[column], errors="coerce")
+        if series.dropna().empty:
             continue
+        # 순매수 금액은 '총 수량 × 현재가' 가 아니라 날짜별 (수량 × 그날 종가)
+        # 의 합이다. 기간 중 주가가 크게 움직이면 두 값이 꽤 달라진다.
+        daily_value = series * df["close"]
         for days in (5, 20):
-            out[f"{label}_net_{days}d"] = int(series.tail(days).sum())
+            out[f"{label}_net_{days}d"] = int(series.dropna().tail(days).sum())
+            money = daily_value.dropna().tail(days).sum()
+            if pd.notna(money):
+                out[f"{label}_value_{days}d"] = round(float(money) / 1e8, 1)
 
     # 외국인·기관이 같은 날 함께 담은 날수 (최근 20일)
     if "foreign_net" in df.columns and "inst_net" in df.columns:

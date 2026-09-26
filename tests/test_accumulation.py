@@ -286,3 +286,34 @@ def test_empty_result_keeps_the_same_column_order(tmp_path, monkeypatch):
     assert empty.empty
     columns = list(empty.columns)
     assert columns.index("turnover_20d") < columns.index("p_A")
+
+
+def test_net_buy_amount_uses_each_days_close_not_the_latest_price(tmp_path, monkeypatch):
+    """'총 수량 × 현재가' 로 계산하면 기간 중 주가가 움직였을 때 틀린다."""
+    monkeypatch.setenv("CHARTFINDER_HOME", str(tmp_path))
+    import pandas as pd
+
+    from chartfinder.screener import facts
+
+    index = pd.date_range("2024-01-01", periods=5, freq="D")
+    # 첫 이틀은 1만원에 100주, 뒤 사흘은 2만원에 100주씩 순매수
+    df = pd.DataFrame(
+        {"open": 0.0, "high": 0.0, "low": 0.0,
+         "close": [10_000.0, 10_000.0, 20_000.0, 20_000.0, 20_000.0],
+         "volume": 1_000.0,
+         "foreign_net": [100.0] * 5, "inst_net": [0.0] * 5},
+        index=index,
+    )
+    out = facts(df)
+    # 날짜별: 2×100×1만 + 3×100×2만 = 800만원 = 0.08억
+    assert out["foreign_value_5d"] == pytest.approx(0.1, abs=0.05)
+    # 총 수량(500주) × 현재가(2만) = 1,000만원 = 0.1억 — 이쪽이면 과대계상이다
+    assert out["foreign_net_5d"] == 500
+
+
+def test_amount_columns_come_before_share_columns(tmp_path, monkeypatch):
+    """금액이 먼저 보여야 한다 — 주식 수는 종목끼리 비교가 안 된다."""
+    from chartfinder.screener import FACT_COLUMNS
+
+    assert FACT_COLUMNS.index("foreign_value_5d") < FACT_COLUMNS.index("foreign_net_5d")
+    assert FACT_COLUMNS.index("inst_value_5d") < FACT_COLUMNS.index("inst_net_5d")
