@@ -205,9 +205,10 @@ def _major_pct_from_rows(rows: list[dict]) -> float | None:
 
 
 def fetch_dilution_shares(symbol: str, years: int = DILUTION_LOOKBACK_YEARS) -> float | None:
-    """CB/BW 로 새로 생길 수 있는 주식 수. 발행 공시가 없으면 0.0, 못 받으면 None.
+    """CB/BW/유상증자로 새로 생길 수 있는 주식 수. 공시가 없으면 0.0, 못 받으면 None.
 
-    권면총액 ÷ 전환(행사)가액 으로 센다. 이미 전환·상환된 물량은 공시만으로는
+    사채는 권면총액 ÷ 전환(행사)가액 으로 세고, 유상증자는 신주 수가 공시에
+    그대로 들어 있어 그걸 쓴다. 이미 전환·상환·발행된 물량은 공시만으로는
     알 수 없어, 이 값은 상한으로 봐야 한다.
     """
     corp = corp_codes().get(symbol)
@@ -217,7 +218,11 @@ def fetch_dilution_shares(symbol: str, years: int = DILUTION_LOOKBACK_YEARS) -> 
     start = date(end.year - years, end.month, 1)
     total = 0.0
     seen_any = False
-    for path, price_key in (("cvbdIsDecsn.json", "cv_prc"), ("bdwtIsDecsn.json", "ex_prc")):
+    for path, reader in (
+        ("cvbdIsDecsn.json", lambda row: _shares_from_bond(row, "cv_prc")),  # 전환사채
+        ("bdwtIsDecsn.json", lambda row: _shares_from_bond(row, "ex_prc")),  # 신주인수권부사채
+        ("piicDecsn.json", _shares_from_offering),                           # 유상증자
+    ):
         try:
             payload = _get(
                 path,
@@ -232,11 +237,29 @@ def fetch_dilution_shares(symbol: str, years: int = DILUTION_LOOKBACK_YEARS) -> 
             continue
         seen_any = True
         for row in payload.get("list") or []:
-            face = _amount(row.get("bd_fta"))
-            price = _amount(row.get(price_key))
-            if face and price and price > 0:
-                total += face / price
+            shares = reader(row)
+            if shares:
+                total += shares
     return total if seen_any else None
+
+
+def _shares_from_bond(row: dict, price_key: str) -> float | None:
+    """사채는 신주 수를 안 주므로 권면총액 ÷ 전환(행사)가액 으로 센다."""
+    face = _amount(row.get("bd_fta"))
+    price = _amount(row.get(price_key))
+    if face and price and price > 0:
+        return face / price
+    return None
+
+
+def _shares_from_offering(row: dict) -> float | None:
+    """유상증자는 신주의 종류와 수가 공시에 그대로 있다 (보통주 + 기타주식)."""
+    total = 0.0
+    for key in ("nstk_ostk_cnt", "nstk_estk_cnt"):
+        count = _amount(row.get(key))
+        if count and count > 0:
+            total += count
+    return total or None
 
 
 def _ratio(value: Any) -> float | None:

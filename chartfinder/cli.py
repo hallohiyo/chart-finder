@@ -108,8 +108,8 @@ def update_cache(
     ),
     profiles: bool = typer.Option(
         False, "--profiles",
-        help="종목 정보(시가총액·주식수·외국인 지분율·공매도·대주주·CB/BW)도 수집. "
-             "대주주·CB/BW 는 DART_API_KEY 가 있어야 한다",
+        help="종목 정보(시가총액·주식수·외국인 지분율·공매도·대주주·CB/BW·유상증자)도 수집. "
+             "대주주·CB/BW·유상증자는 DART_API_KEY 가 있어야 한다",
     ),
     workers: Optional[int] = typer.Option(
         None, "--workers", "-w",
@@ -248,7 +248,7 @@ _PROFILE_LABELS = {
     "foreign_pct": "외국인 보유비중",
     "short_ratio": "공매도 비중",
     "loan_ratio": "공매도 잔고 비중",
-    "dilution_pct": "CB/BW 잠재 물량",
+    "dilution_pct": "CB/BW·유상증자 잠재 물량",
 }
 
 

@@ -30,7 +30,7 @@ PROFILE_FIELDS = [
     "foreign_pct",   # 외국인 보유비중 (%)
     "short_ratio",   # 공매도 비중 (거래량 대비 %, 최근 평균)
     "loan_ratio",    # 대차잔고 비중 (상장주식수 대비 %)
-    "dilution_pct",  # CB/BW 등 잠재 희석 물량 (상장주식수 대비 %)
+    "dilution_pct",  # CB/BW·유상증자 잠재 희석 물량 (상장주식수 대비 %)
 ]
 
 

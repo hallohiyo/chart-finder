@@ -190,3 +190,100 @@ def test_krx_keeps_fundamentals_when_dart_fails(monkeypatch):
 
     result = KrxSource().fetch_fundamentals("005930")
     assert result.loc[2025, "revenue"] == 100.0
+
+
+# --------------------------------------------------------------- 지분·잠재 물량
+
+
+class _Payload:
+    def __init__(self, payload):
+        self._payload = payload
+
+    def json(self):
+        return self._payload
+
+
+def test_major_holder_prefers_the_total_row():
+    rows = [
+        {"nm": "이재용", "trmend_posesn_stock_qota_rt": "1.63"},
+        {"nm": "삼성물산", "trmend_posesn_stock_qota_rt": "5.01"},
+        {"nm": "계", "trmend_posesn_stock_qota_rt": "21.15"},
+    ]
+    assert dart._major_pct_from_rows(rows) == 21.15
+
+
+def test_major_holder_sums_when_there_is_no_total_row():
+    rows = [
+        {"nm": "김대표", "trmend_posesn_stock_qota_rt": "30.0"},
+        {"nm": "배우자", "trmend_posesn_stock_qota_rt": "4.5"},
+        {"nm": "미기재", "trmend_posesn_stock_qota_rt": "-"},
+    ]
+    assert dart._major_pct_from_rows(rows) == 34.5
+
+
+def test_major_holder_is_none_when_nothing_is_readable():
+    assert dart._major_pct_from_rows([{"nm": "계", "trmend_posesn_stock_qota_rt": "-"}]) is None
+
+
+def test_dilution_counts_bonds_and_rights_offerings(monkeypatch):
+    """전환사채·신주인수권부사채·유상증자를 모두 합친다."""
+    payloads = {
+        # 전환사채 100억, 전환가액 10,000원 → 100만주
+        "cvbdIsDecsn.json": {
+            "status": "000",
+            "list": [{"bd_fta": "10,000,000,000", "cv_prc": "10,000"}],
+        },
+        # 신주인수권부사채 50억, 행사가액 5,000원 → 100만주
+        "bdwtIsDecsn.json": {
+            "status": "000",
+            "list": [{"bd_fta": "5,000,000,000", "ex_prc": "5,000"}],
+        },
+        # 유상증자는 신주 수가 그대로 있다 → 보통주 200만주 + 기타 50만주
+        "piicDecsn.json": {
+            "status": "000",
+            "list": [{"nstk_ostk_cnt": "2,000,000", "nstk_estk_cnt": "500,000"}],
+        },
+    }
+    monkeypatch.setattr(dart, "_get", lambda path, **params: _Payload(payloads[path]))
+    monkeypatch.setattr(dart, "corp_codes", lambda refresh=False: {"005930": "00126380"})
+
+    assert dart.fetch_dilution_shares("005930") == 4_500_000
+
+
+def test_dilution_is_zero_when_there_are_no_filings(monkeypatch):
+    """공시가 없는 것과 못 받은 것은 다르다 — 없으면 0.0, 못 받으면 None."""
+    monkeypatch.setattr(
+        dart, "_get", lambda path, **params: _Payload({"status": "013", "list": []})
+    )
+    monkeypatch.setattr(dart, "corp_codes", lambda refresh=False: {"005930": "00126380"})
+
+    assert dart.fetch_dilution_shares("005930") == 0.0
+
+
+def test_dilution_is_none_when_every_call_fails(monkeypatch):
+    def boom(path, **params):
+        raise RuntimeError("차단")
+
+    monkeypatch.setattr(dart, "_get", boom)
+    monkeypatch.setattr(dart, "corp_codes", lambda refresh=False: {"005930": "00126380"})
+
+    assert dart.fetch_dilution_shares("005930") is None
+
+
+def test_dilution_skips_rows_without_a_conversion_price(monkeypatch):
+    """전환가액 미정 공시는 주식 수를 낼 수 없으므로 세지 않는다."""
+    payloads = {
+        "cvbdIsDecsn.json": {
+            "status": "000",
+            "list": [
+                {"bd_fta": "10,000,000,000", "cv_prc": "-"},
+                {"bd_fta": "2,000,000,000", "cv_prc": "2,000"},
+            ],
+        },
+        "bdwtIsDecsn.json": {"status": "013", "list": []},
+        "piicDecsn.json": {"status": "013", "list": []},
+    }
+    monkeypatch.setattr(dart, "_get", lambda path, **params: _Payload(payloads[path]))
+    monkeypatch.setattr(dart, "corp_codes", lambda refresh=False: {"005930": "00126380"})
+
+    assert dart.fetch_dilution_shares("005930") == 1_000_000

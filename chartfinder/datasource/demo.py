@@ -143,9 +143,13 @@ def generate_fundamentals(symbol: str, years: int = 5) -> pd.DataFrame:
 
 def generate_profiles(symbols: list[str]) -> pd.DataFrame:
     """합성 종목 정보. 실제 출처가 없어도 종목정보 조건을 시험할 수 있게."""
+    import zlib
+
     rows = {}
     for symbol in symbols:
-        rng = np.random.default_rng(abs(hash(symbol)) % (2**32) + 13)
+        # hash() 는 실행마다 솔트가 바뀌어 같은 종목도 다른 값이 나온다.
+        # 데모 데이터는 재현돼야 하므로 안정적인 해시를 쓴다.
+        rng = np.random.default_rng(zlib.crc32(symbol.encode()) + 13)
         shares = float(rng.integers(3_000_000, 500_000_000))
         major = float(rng.uniform(5.0, 75.0))
         rows[symbol] = {

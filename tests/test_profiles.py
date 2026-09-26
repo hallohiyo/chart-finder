@@ -187,7 +187,12 @@ def test_screen_uses_the_cached_snapshot(tmp_path, monkeypatch):
     cache.update("demo", symbols=symbols, years=2)
     cache.update_profiles("demo", symbols=symbols)
 
-    specs = [ConditionSpec("market_cap"), ConditionSpec("low_dilution")]
+    # 합성 시가총액은 폭이 넓으므로 범위를 넉넉히 준다 (여기서 보려는 건
+    # 스냅샷이 조건까지 전달되는지다)
+    specs = [
+        ConditionSpec("market_cap", {"low": 1.0, "high": 5_000_000.0}),
+        ConditionSpec("low_dilution"),
+    ]
     result = screen("demo", specs, tickers=cache.get_tickers("demo", "all")[:12])
 
     assert not result.empty
@@ -200,7 +205,7 @@ def test_screen_without_the_snapshot_warns_instead_of_ranking_noise(tmp_path, mo
     symbols = [t.symbol for t in get_source("demo").list_tickers()][:8]
     cache.update("demo", symbols=symbols, years=2)
 
-    specs = [ConditionSpec("market_cap")]
+    specs = [ConditionSpec("market_cap", {"low": 1.0, "high": 5_000_000.0})]
     result = screen("demo", specs, tickers=cache.get_tickers("demo", "all")[:8])
 
     assert unscored_conditions(result, specs) == ["market_cap"]

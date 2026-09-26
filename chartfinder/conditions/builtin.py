@@ -1078,7 +1078,7 @@ def low_short_balance(ctx: Ctx, max_pct: float) -> float:
 @condition(
     "low_dilution", "잠재 희석 물량 적음", PROFILE,
     params=(_p("max_pct", "최대 (%)", "float", default=5.0, min=0.0, max=100.0, step=1.0),),
-    description="CB·BW 등으로 새로 풀릴 수 있는 물량의 비중. 많으면 주식 수가 늘어난다.",
+    description="전환사채·신주인수권부사채·유상증자로 새로 풀릴 수 있는 물량의 비중. 많으면 주식 수가 늘어나 기존 주주 몫이 줄어든다.",
     min_bars=1,
 )
 def low_dilution(ctx: Ctx, max_pct: float) -> float:

@@ -87,7 +87,7 @@ class KrxSource(DataSource):
             ("상장/시총 (FinanceDataReader)", self._profiles_from_listing),
             ("외국인 지분율 (pykrx)", self._profiles_foreign),
             ("공매도 (pykrx)", self._profiles_short),
-            ("대주주·CB/BW (DART)", self._profiles_dart),
+            ("대주주·CB/BW·유상증자 (DART)", self._profiles_dart),
         ):
             try:
                 filler(frame, universe)
@@ -165,11 +165,11 @@ class KrxSource(DataSource):
         raise RuntimeError(f"{func_name}: 최근 8일 안에 응답이 없습니다.")
 
     def _profiles_dart(self, frame: pd.DataFrame, universe: str) -> None:
-        """대주주 지분율과 CB/BW 물량. 종목당 요청이라 DART 키가 있을 때만 한다."""
+        """대주주 지분율과 CB/BW·유상증자 물량. 종목당 요청이라 DART 키가 있을 때만 한다."""
         from . import dart
 
         if not dart.enabled():
-            raise RuntimeError("DART_API_KEY 가 없어 대주주 지분율·CB/BW 는 건너뜁니다.")
+            raise RuntimeError("DART_API_KEY 가 없어 대주주 지분율·CB/BW·유상증자는 건너뜁니다.")
 
         major: dict[str, float] = {}
         dilution: dict[str, float] = {}

@@ -40,7 +40,7 @@ conditions:
     weight: 1.0
     params: {max_pct: 2.0}
 
-  # 8. CB/BW — 잠재 매물과 희석 가능성
+  # 8. CB/BW·유상증자 — 잠재 매물과 희석 가능성
   - key: low_dilution
     weight: 1.5
     params: {max_pct: 5.0}

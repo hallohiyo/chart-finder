@@ -30,7 +30,7 @@ _PROFILE_LABELS = {
     "foreign_pct": "외국인 보유비중",
     "short_ratio": "공매도 비중",
     "loan_ratio": "공매도 잔고 비중",
-    "dilution_pct": "CB/BW 잠재 물량",
+    "dilution_pct": "CB/BW·유상증자 잠재 물량",
 }
 
 
@@ -425,7 +425,7 @@ class App(tk.Tk):
                 messagebox.showinfo(
                     "일부 항목은 비어 있습니다",
                     f"받지 못한 항목: {labels}\n\n"
-                    "대주주 지분율과 CB/BW 물량은 금융감독원 DART 키(DART_API_KEY)가 "
+                    "대주주 지분율과 CB/BW·유상증자 물량은 금융감독원 DART 키(DART_API_KEY)가 "
                     "있어야 받을 수 있습니다. 그 항목을 쓰는 조건은 0점으로 처리됩니다.",
                 )
             if after:
