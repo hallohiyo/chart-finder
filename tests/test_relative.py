@@ -149,3 +149,60 @@ def test_screen_feeds_the_matching_index(tmp_path, monkeypatch):
 
     assert not result.empty
     assert unscored_conditions(result, specs) == []
+
+
+# ------------------------------------------------------- 근접 vs 돌파
+
+
+def _rising_then_stalling() -> pd.DataFrame:
+    """고점을 찍고 그 바로 아래에서 횡보 — 근접이지만 못 뚫은 자리."""
+    closes = [100.0 + i for i in range(80)]       # 100 → 179 까지 상승
+    closes += [176.0] * 20                        # 고점 179 아래에서 막혀 횡보
+    return _bars(closes)
+
+
+def _breaking_out() -> pd.DataFrame:
+    """박스 위로 실제로 넘어선 자리."""
+    closes = [100.0] * 80 + [101.0, 103.0, 108.0]
+    return _bars(closes)
+
+
+def test_near_high_cannot_tell_a_breakout_from_a_stall():
+    """'고점 5% 이내' 는 저항선 아래에서 막혀 돌아선 자리도 만점을 준다.
+
+    이걸 돌파 신호로 쓰면 안 되는 이유다.
+    """
+    stalling = Ctx(_rising_then_stalling())
+    # 돌파 조건과 같은 60일 창으로 견준다
+    assert _score("near_high", stalling, period=60, max_gap=5.0) == 1.0
+
+
+def test_breakout_high_rejects_the_stall():
+    stalling = Ctx(_rising_then_stalling())
+    breaking = Ctx(_breaking_out())
+
+    assert _score("breakout_high", breaking, period=60, within=5) == 1.0
+    assert _score("breakout_high", stalling, period=60, within=5) == 0.0
+
+
+def test_high_strength_preset_confirms_an_actual_breakout():
+    """신고가권 전략은 '근처' 가 아니라 '뚫었는지' 를 봐야 한다."""
+    from chartfinder import presets as presets_mod
+
+    preset = next(p for _, p in presets_mod.load_all() if "신고가권" in p.name)
+    keys = {spec.key for spec in preset.conditions}
+    assert "breakout_high" in keys
+    # 돌파 확인이 위치 조건보다 무거워야 한다
+    weights = {spec.key: spec.weight for spec in preset.conditions}
+    assert weights["breakout_high"] > weights["price_position"]
+
+
+def test_bottom_and_high_presets_do_not_share_conditions_that_contradict():
+    """바닥권과 신고가권이 한 전략에 섞이면 점수가 평준화돼 순위가 죽는다."""
+    from chartfinder import presets as presets_mod
+
+    for _, preset in presets_mod.load_all():
+        keys = {spec.key for spec in preset.conditions}
+        bottom = keys & {"near_low", "rsi_oversold", "bb_lower_touch", "stoch_oversold"}
+        top = keys & {"near_high", "breakout_high"}
+        assert not (bottom and top), f"{preset.name}: {bottom} 와 {top} 가 섞여 있다"

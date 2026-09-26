@@ -1,14 +1,21 @@
 name: 신고가권 + 상대강도 — 시장을 앞서 달리는 종목
 market: kr
 universe: all
-description: 52주 상단 20% 안에서 지수보다 강한 종목. 바닥 반등과 반대 전략이다.
+description: 직전 고점을 실제로 뚫고, 지수보다 강한 종목. 고점 근처에서 막힌 것과 구분한다.
 requires: [profiles]
 order: 16
 conditions:
-  # 52주 범위의 위쪽 20% — 신고가권
+  # 직전 60일 고점을 실제로 넘어섰는지 — '근처' 와 '뚫음' 은 다르다.
+  # 고점 5% 이내(near_high)로만 보면 저항선 아래에서 막혀 돌아선 자리도
+  # 만점을 받는다. 돌파를 확인해야 한다.
+  - key: breakout_high
+    weight: 3.0
+    params: {period: 60, within: 5}
+
+  # 52주 범위의 위쪽 20% — 단기 돌파가 52주 기준으로도 높은 자리인지
   - key: price_position
-    weight: 2.5
-    params: {period: 252, low: 80.0, high: 100.0}
+    weight: 1.5
+    params: {period: 252, low: 70.0, high: 100.0}
 
   # 지수보다 확실히 강하다
   - key: relative_strength
