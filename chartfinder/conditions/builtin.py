@@ -1297,3 +1297,89 @@ def relative_strength(ctx: Ctx, period: int, min_excess: float) -> float:
     if own is None or market is None:
         return 0.0
     return soft_gt(own - market, min_excess, tol=max(abs(min_excess) * 0.5, 3.0))
+
+
+# --------------------------------------------------------------------------- 엔벨로프·이격도
+#
+# 이동평균에서 고정 비율만큼 떨어진 밴드(엔벨로프)와, 주가가 이평선의 몇 %인지
+# 보는 이격도. 볼린저와 달리 밴드 폭이 변동성에 따라 흔들리지 않아, 분할 매수
+# 가격대를 미리 정해 둘 수 있다.
+
+
+@condition(
+    "envelope_lower", "엔벨로프 하단 도달", VOLATILITY,
+    params=(
+        _p("period", "기준 이평선", default=20, min=5, max=240),
+        _p("pct", "엔벨로프 비율 (%)", "float", default=20.0, min=1.0, max=60.0, step=1.0),
+        _p("max_position", "밴드 내 위치 이하 (%)", "float",
+           default=10.0, min=0.0, max=100.0, step=5.0),
+    ),
+    description="주가가 엔벨로프 하단선 부근까지 내려온 자리 (1차 매수 지점). "
+                "밴드 위치 0이 하단선, 50이 중심선(이평선), 100이 상단선이다. "
+                "하단을 이탈하면 0 미만이 되고 그것도 인정한다.",
+    min_bars=30,
+)
+def envelope_lower(ctx: Ctx, period: int, pct: float, max_position: float) -> float:
+    position = ctx.last(ctx.envelope_position(period, pct))
+    if position is None:
+        return 0.0
+    return soft_lt(position, max_position, tol=max(max_position, 5.0))
+
+
+@condition(
+    "envelope_zone", "엔벨로프 밴드 위치", VOLATILITY,
+    params=(
+        _p("period", "기준 이평선", default=20, min=5, max=240),
+        _p("pct", "엔벨로프 비율 (%)", "float", default=20.0, min=1.0, max=60.0, step=1.0),
+        _p("low", "최소 위치 (%)", "float", default=0.0, min=-50.0, max=150.0, step=5.0),
+        _p("high", "최대 위치 (%)", "float", default=25.0, min=-50.0, max=150.0, step=5.0),
+    ),
+    description="엔벨로프 밴드 안에서 지금 어디인지 구간으로 지정한다. "
+                "분할 매수 자리(하단 0~25)와 분할 매도 자리(상단 75~100)를 "
+                "같은 조건으로 반대 방향으로 쓸 수 있다.",
+    min_bars=30,
+)
+def envelope_zone(ctx: Ctx, period: int, pct: float, low: float, high: float) -> float:
+    position = ctx.last(ctx.envelope_position(period, pct))
+    if position is None:
+        return 0.0
+    return soft_between(position, low, high)
+
+
+@condition(
+    "disparity_range", "이격도 구간", VOLATILITY,
+    params=(
+        _p("period", "기준 이평선", default=20, min=5, max=240),
+        _p("low", "최소 이격도 (%)", "float", default=85.0, min=30.0, max=200.0, step=1.0),
+        _p("high", "최대 이격도 (%)", "float", default=98.0, min=30.0, max=300.0, step=1.0),
+    ),
+    description="주가가 이평선의 몇 %인지. 100이면 이평선과 같고, 85면 15% 아래다. "
+                "너무 낮으면 추세가 꺾인 것이고 너무 높으면 과열이라 구간으로 본다.",
+    min_bars=30,
+)
+def disparity_range(ctx: Ctx, period: int, low: float, high: float) -> float:
+    value = ctx.last(ctx.disparity(period))
+    if value is None:
+        return 0.0
+    return soft_between(value, low, high)
+
+
+@condition(
+    "gap_over_ma", "갭으로 이평선 돌파", PATTERN,
+    params=(
+        _p("period", "돌파할 이평선", default=20, min=5, max=240),
+        _p("min_gap", "최소 갭 (%)", "float", default=1.0, min=0.0, max=30.0, step=0.5),
+        _p("within", "최근 N일 이내", default=3, min=1, max=30),
+    ),
+    description="전날 종가는 이평선 아래였는데 시가가 갭을 띄우고 이평선 위에서 "
+                "시작한 자리. 눌림목에서 슬금슬금 올라 이평선을 넘은 것과 다르다.",
+    min_bars=40,
+)
+def gap_over_ma(ctx: Ctx, period: int, min_gap: float, within: int) -> float:
+    ma = ctx.ma(period)
+    prev_close = ctx.close.shift(1)
+    open_ = ctx.df["open"]
+    gap_pct = (open_ / prev_close - 1.0) * 100.0
+
+    crossed = (prev_close < ma.shift(1)) & (open_ > ma) & (gap_pct >= min_gap)
+    return _recency_score(crossed.fillna(False), within)

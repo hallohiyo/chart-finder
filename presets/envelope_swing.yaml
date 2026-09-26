@@ -1,0 +1,44 @@
+name: 엔벨로프 분할매수 — 하단에서 사서 상단에서 파는 자리
+market: kr
+universe: all
+description: 20일선 엔벨로프 하단 부근 + 20/60일선 살아있음 + 이격도 과매도. 우량주 스윙용.
+requires: [profiles]
+order: 17
+conditions:
+  # 1. 엔벨로프 하단 부근 — 1차 매수 자리
+  #    비율 20%는 거의 걸리지 않는다(실측: 60종목 중 0). 10%로 잡는다.
+  #    종목이 너무 안 나오면 8%로, 너무 많으면 15%로 조절하면 된다.
+  - key: envelope_lower
+    weight: 3.0
+    params: {period: 20, pct: 10.0, max_position: 15.0}
+
+  # 2. 이격도 — 20일선 대비 얼마나 벌어졌는지 (85~97% = 아래쪽이지만 붕괴는 아님)
+  - key: disparity_range
+    weight: 2.0
+    params: {period: 20, low: 85.0, high: 97.0}
+
+  # 3. 60일선 위 — 중기 추세가 살아 있는 종목만. 추세가 꺾인 종목의
+  #    엔벨로프 하단은 '싼 자리' 가 아니라 계속 내려가는 길이다.
+  - key: above_ma
+    weight: 2.5
+    params: {period: 60, margin: -3.0}
+
+  # 4. 5일선이 방향을 돌리는 중 — 단기 타이밍
+  - key: ma_turn_up
+    weight: 2.0
+    params: {period: 5, within: 3, confirm: 2}
+
+  # 5. 거래대금 — 분할 매수는 여러 번 사고팔아야 하므로 유동성이 필수다
+  - key: turnover_value
+    weight: 2.0
+    params: {min_value: 30.0, period: 20}
+
+  # 6. 변동성이 적당한지 (너무 낮으면 밴드 하단까지 안 내려온다)
+  - key: atr_range
+    weight: 1.0
+    params: {period: 14, low: 2.0, high: 8.0}
+
+  # 7. 잠재 매물
+  - key: low_dilution
+    weight: 1.5
+    params: {max_pct: 5.0}

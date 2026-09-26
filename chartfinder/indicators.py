@@ -52,6 +52,38 @@ def bollinger(
     return mid - mult * sd, mid, mid + mult * sd
 
 
+def envelope(
+    close: pd.Series, period: int = 20, pct: float = 20.0
+) -> tuple[pd.Series, pd.Series, pd.Series]:
+    """엔벨로프 — 이동평균에서 위아래로 일정 비율 떨어진 밴드.
+
+    볼린저와 달리 표준편차가 아니라 고정 비율을 쓴다. 그래서 밴드 폭이
+    변동성에 따라 흔들리지 않고, 분할 매수 가격대를 미리 정해 둘 수 있다.
+    (중심선, 상단, 하단) 을 돌려준다.
+    """
+    center = sma(close, period)
+    ratio = pct / 100.0
+    return center, center * (1.0 + ratio), center * (1.0 - ratio)
+
+
+def envelope_position(
+    close: pd.Series, period: int = 20, pct: float = 20.0
+) -> pd.Series:
+    """엔벨로프 밴드 안에서 현재가의 위치 (0=하단, 50=중심선, 100=상단).
+
+    밴드를 벗어나면 0 미만이나 100 초과가 된다 — 자르지 않는다.
+    하단 이탈(0 미만)은 하단 터치보다 더 내려간 자리이므로 구분해야 한다.
+    """
+    _, upper, lower = envelope(close, period, pct)
+    span = upper - lower
+    return (close - lower) / span.replace(0, pd.NA) * 100.0
+
+
+def disparity(close: pd.Series, period: int = 20) -> pd.Series:
+    """이격도 — 현재가가 이동평균의 몇 %인지. 100이면 이평선과 같다."""
+    return close / sma(close, period) * 100.0
+
+
 def band_width(close: pd.Series, period: int = 20, mult: float = 2.0) -> pd.Series:
     """볼린저 밴드 폭을 중심선 대비 %로."""
     lower, mid, upper = bollinger(close, period, mult)

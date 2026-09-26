@@ -157,6 +157,16 @@ class Ctx:
             ("boll", period, mult), lambda: ind.bollinger(self.close, period, mult)
         )
 
+    def envelope_position(self, period: int = 20, pct: float = 20.0) -> pd.Series:
+        return self._memoized(
+            ("envpos", period, pct), lambda: ind.envelope_position(self.close, period, pct)
+        )
+
+    def disparity(self, period: int = 20) -> pd.Series:
+        return self._memoized(
+            ("disparity", period), lambda: ind.disparity(self.close, period)
+        )
+
     def band_width(self, period: int = 20, mult: float = 2.0) -> pd.Series:
         return self._memoized(
             ("bw", period, mult), lambda: ind.band_width(self.close, period, mult)

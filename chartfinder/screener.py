@@ -68,9 +68,21 @@ def score_one(
     profile: dict[str, float] | None = None,
     benchmark: pd.DataFrame | None = None,
 ) -> dict[str, float]:
-    """종목 하나에 대한 조건별 점수."""
+    """종목 하나에 대한 조건별 점수.
+
+    같은 조건을 다른 파라미터로 두 번 쓰면 이름을 구분해서 돌려준다
+    (`gap_over_ma`, `gap_over_ma#2`). 키만 쓰면 뒤쪽이 앞쪽을 덮어쓴다.
+    """
+    specs = list(specs)
     ctx = Ctx(df, fundamentals, profile, benchmark)
-    return {spec.key: get_condition(spec.key).score(ctx, spec.params) for spec in specs}
+    cached: dict[tuple, float] = {}
+    out = {}
+    for label, spec in zip(score_labels(specs), specs):
+        key = _cache_key(spec)
+        if key not in cached:
+            cached[key] = get_condition(spec.key).score(ctx, spec.params)
+        out[label] = cached[key]
+    return out
 
 
 #: 저장 파일에 쓸 한글 머리글. 엑셀에서 바로 읽히도록.
@@ -123,6 +135,26 @@ FACT_COLUMNS = [
 def _cache_key(spec: "ConditionSpec") -> tuple:
     """조건 점수 캐시 키. 같은 조건·같은 파라미터면 한 번만 계산한다."""
     return (spec.key, tuple(sorted(spec.params.items())))
+
+
+def score_labels(specs: Iterable[ConditionSpec]) -> list[str]:
+    """조건별 점수 컬럼 이름. 같은 조건이 두 번 나오면 구분해서 붙인다.
+
+    `gap_over_ma` 를 20일선·60일선으로 두 번 쓰는 것은 정당한 사용인데,
+    이름을 키만으로 지으면 두 점수가 한 칸에 겹쳐 하나가 사라진다.
+    """
+    specs = list(specs)
+    counts: dict[str, int] = {}
+    for spec in specs:
+        counts[spec.key] = counts.get(spec.key, 0) + 1
+    out, used = [], {}
+    for spec in specs:
+        if counts[spec.key] == 1:
+            out.append(spec.key)
+            continue
+        used[spec.key] = used.get(spec.key, 0) + 1
+        out.append(f"{spec.key}#{used[spec.key]}")
+    return out
 
 
 def facts(df: pd.DataFrame, profile: dict[str, float] | None = None) -> dict[str, Any]:
@@ -212,18 +244,29 @@ def unscored_conditions(result: pd.DataFrame, specs: Iterable[ConditionSpec]) ->
     """
     if result is None or result.empty:
         return []
+    specs = list(specs)
     return [
-        spec.key for spec in specs
-        if f"s_{spec.key}" in result.columns and float(result[f"s_{spec.key}"].max()) <= 0
+        spec.key
+        for label, spec in zip(score_labels(specs), specs)
+        if f"s_{label}" in result.columns and float(result[f"s_{label}"].max()) <= 0
     ]
 
 
 def combine(scores: Mapping[str, float], specs: Iterable[ConditionSpec]) -> float:
-    """가중 평균 (0~1)."""
+    """가중 평균 (0~1).
+
+    scores 는 score_labels() 가 만든 이름으로 조회한다. 키만으로 조회하면
+    같은 조건이 두 번 나올 때 두 조건이 같은 점수를 받아 합이 부풀려진다.
+    """
+    specs = list(specs)
     total = sum(spec.weight for spec in specs)
     if total <= 0:
         return 0.0
-    return sum(scores.get(spec.key, 0.0) * spec.weight for spec in specs) / total
+    labels = score_labels(specs)
+    return sum(
+        scores.get(label, scores.get(spec.key, 0.0)) * spec.weight
+        for label, spec in zip(labels, specs)
+    ) / total
 
 
 def screen_multi(
@@ -278,11 +321,13 @@ def screen_multi(
         per_strategy: dict[str, float] = {}
         for label, specs in strategies.items():
             scores = {}
-            for spec in specs:
+            # 같은 조건을 다른 파라미터로 두 번 쓰면 이름을 구분해야 한다.
+            # 키만 쓰면 뒤쪽이 앞쪽을 덮어써 두 조건이 같은 점수를 받는다.
+            for name, spec in zip(score_labels(specs), specs):
                 key = _cache_key(spec)
                 if key not in cache_by_key:
                     cache_by_key[key] = get_condition(spec.key).score(ctx, spec.params)
-                scores[spec.key] = cache_by_key[key]
+                scores[name] = cache_by_key[key]
             per_strategy[label] = combine(scores, specs)
 
         # 점수가 같으면 조건이 많은(까다로운) 전략 이름을 붙인다. 더 많은 정보다.
@@ -418,7 +463,7 @@ def screen(
         rows.append(row)
 
     columns = ["symbol", "name", "score", "matched", "close", "chg_pct", "date"] + [
-        f"s_{spec.key}" for spec in specs
+        f"s_{label}" for label in score_labels(specs)
     ]
     if not rows:
         return pd.DataFrame(columns=columns)
