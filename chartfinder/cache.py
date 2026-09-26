@@ -286,41 +286,51 @@ def update(
 
     total = sum(len(v) for v in buckets.values()) + len(flows_only)
     done = 0
-    for start, syms in buckets.items():
-        step = getattr(source, "batch_size", 1) or 1
-        for i in range(0, len(syms), step):
-            chunk = syms[i : i + step]
-            try:
-                fetched = source.fetch_many(chunk, start, fetch_end)
-            except Exception:
-                fetched = {}
-            for sym in chunk:
-                df = fetched.get(sym)
-                if df is None or df.empty:
-                    stats["failed"] += 1
-                else:
-                    combined = merge(None if force else load(market, sym), df)
-                    if want_flows:
-                        # 수급 실패가 시세 저장을 막지는 않되, 이유는 남긴다
-                        try:
-                            combined, applied = attach_flows(
-                                source, sym, combined, start, fetch_end
+
+    # 묶음마다 따로 받으면 시작일이 제각각인 종목은 1개짜리 묶음이 되어
+    # 동시 요청이 아예 걸리지 않는다. 시작일 순으로 늘어놓고 묶음 경계를
+    # 무시한 채 잘라서, 모든 종목이 같은 크기의 조각에 들어가게 한다.
+    # 조각 안에서는 가장 이른 시작일을 쓴다 (더 받아도 병합 때 흡수된다).
+    step = getattr(source, "batch_size", 1) or 1
+    ordered = sorted(
+        ((start, sym) for start, syms in buckets.items() for sym in syms),
+        key=lambda pair: pair[0],
+    )
+    for i in range(0, len(ordered), step):
+        window = ordered[i : i + step]
+        start = min(pair[0] for pair in window)
+        chunk = [pair[1] for pair in window]
+        try:
+            fetched = source.fetch_many(chunk, start, fetch_end)
+        except Exception:
+            fetched = {}
+        for sym in chunk:
+            df = fetched.get(sym)
+            if df is None or df.empty:
+                stats["failed"] += 1
+            else:
+                combined = merge(None if force else load(market, sym), df)
+                if want_flows:
+                    # 수급 실패가 시세 저장을 막지는 않되, 이유는 남긴다
+                    try:
+                        combined, applied = attach_flows(
+                            source, sym, combined, start, fetch_end
+                        )
+                        if applied:
+                            stats["flows"] += 1
+                            stats["flow_source"] = getattr(source, "_flow_provider", None)
+                        else:
+                            stats.setdefault(
+                                "flow_error",
+                                f"수급 응답이 비어 있습니다 ({sym}, {start}~{today}).",
                             )
-                            if applied:
-                                stats["flows"] += 1
-                                stats["flow_source"] = getattr(source, "_flow_provider", None)
-                            else:
-                                stats.setdefault(
-                                    "flow_error",
-                                    f"수급 응답이 비어 있습니다 ({sym}, {start}~{today}).",
-                                )
-                        except Exception as exc:
-                            stats.setdefault("flow_error", f"{type(exc).__name__}: {exc}")
-                    save(market, sym, combined)
-                    stats["updated"] += 1
-                done += 1
-                if progress:
-                    progress(done, total, sym)
+                    except Exception as exc:
+                        stats.setdefault("flow_error", f"{type(exc).__name__}: {exc}")
+                save(market, sym, combined)
+                stats["updated"] += 1
+            done += 1
+            if progress:
+                progress(done, total, sym)
 
     # 시세는 그대로 두고 수급만 채운다
     for sym in flows_only:

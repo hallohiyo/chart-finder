@@ -112,6 +112,9 @@ def update_cache(
     limit: Optional[int] = typer.Option(None, "--limit", help="앞에서 N종목만 (시험용)"),
 ) -> None:
     """일봉 데이터를 내려받아 로컬 캐시를 갱신한다."""
+    import time
+
+    started = time.monotonic()
     universe = _resolve_universe(market, universe)
     tickers = cache.get_tickers(market, universe, refresh=force)
     symbols = [t.symbol for t in tickers][:limit] if limit else [t.symbol for t in tickers]
@@ -133,7 +136,13 @@ def update_cache(
         )
         bar.update(task, completed=bar.tasks[0].total)
 
-    summary = f"[green]완료[/] 갱신 {stats['updated']} · 최신 {stats['skipped']} · 실패 {stats['failed']}"
+    elapsed = time.monotonic() - started
+    handled = stats["updated"] + stats["failed"]
+    rate = f" · {handled / elapsed:.1f}종목/초" if elapsed > 0 and handled else ""
+    summary = (
+        f"[green]완료[/] 갱신 {stats['updated']} · 최신 {stats['skipped']} · "
+        f"실패 {stats['failed']} [dim]({elapsed:.0f}초{rate})[/]"
+    )
     if stats.get("backfilled"):
         summary += f" · 과거 소급 {stats['backfilled']}"
     if flows:
@@ -183,6 +192,86 @@ def show_status(
     console.print(f"종목 수   : {info['symbols']}")
     console.print(f"최근 일자 : {info['latest'] or '-'}")
     console.print(f"용량      : {info['size_mb']} MB")
+
+
+@app.command("speedtest")
+def speedtest(
+    market: str = typer.Option("kr", "--market", "-m", help=f"시장 {MARKETS}"),
+    symbols: int = typer.Option(12, "--symbols", "-s", help="시험에 쓸 종목 수"),
+    workers: str = typer.Option("1,4,8,16", "--workers", "-w", help="시험할 동시 요청 수"),
+    days: int = typer.Option(120, "--days", help="받아볼 기간(일)"),
+) -> None:
+    """동시 요청 수를 바꿔가며 실제 수집 속도를 잰다.
+
+    서버가 동시 요청을 받아주지 않으면 숫자가 거의 같게 나온다. 그때는
+    --workers 를 올려도 소용없고 다른 방법을 찾아야 한다.
+    """
+    import time
+    from datetime import date, timedelta
+
+    from .datasource import get_source
+
+    source = get_source(market)
+    universe = default_universe(market)
+    tickers = cache.get_tickers(market, universe)[: symbols * 2]
+    if len(tickers) < symbols:
+        console.print("[red]종목 목록을 가져오지 못했습니다.[/]")
+        raise typer.Exit(code=1)
+
+    end = date.today()
+    start = end - timedelta(days=days)
+    counts = [int(w) for w in workers.split(",") if w.strip().isdigit()]
+    original = source.max_workers
+
+    console.print(
+        f"[bold]{market.upper()}[/] {symbols}종목 × {days}일치를 동시 요청 수를 바꿔가며 받습니다. "
+        "[dim]캐시에 저장하지 않습니다.[/]\n"
+    )
+
+    table = Table()
+    for column in ("동시 요청", "걸린 시간", "종목/초", "성공", "전 종목 환산"):
+        table.add_column(column, justify="right" if column != "동시 요청" else "left")
+
+    results = []
+    try:
+        for count in counts:
+            source.max_workers = count
+            # 캐시·순서 효과를 피하려고 매번 다른 종목을 쓴다
+            picked = [t.symbol for t in tickers[:symbols]]
+            tickers = tickers[symbols:] + tickers[:symbols]
+
+            begin = time.monotonic()
+            fetched = source.fetch_many(picked, start, end)
+            elapsed = time.monotonic() - begin
+
+            rate = len(picked) / elapsed if elapsed else 0
+            full = len(cache.get_tickers(market, universe)) / rate / 60 if rate else 0
+            results.append((count, elapsed, rate))
+            table.add_row(
+                f"{count}개", f"{elapsed:.1f}초", f"{rate:.1f}",
+                f"{len(fetched)}/{len(picked)}", f"{full:.0f}분",
+            )
+    finally:
+        source.max_workers = original
+
+    console.print(table)
+
+    if len(results) >= 2:
+        base = results[0][2] or 0.001
+        best = max(results, key=lambda r: r[2])
+        gain = best[2] / base
+        if gain < 1.5:
+            console.print(
+                "[yellow]동시 요청을 늘려도 거의 빨라지지 않습니다.[/] "
+                "서버가 IP 단위로 순서대로 처리하는 것으로 보입니다 — "
+                "--workers 를 올리는 것은 소용이 없습니다."
+            )
+        else:
+            console.print(
+                f"[green]동시 {best[0]}개일 때 {gain:.1f}배 빨랐습니다.[/] "
+                f"`update -w {best[0]}` 로 쓰세요."
+            )
+    console.print("[dim]실패가 늘어나면 서버가 막기 시작한 것이니 한 단계 낮추세요.[/]")
 
 
 @app.command("doctor")

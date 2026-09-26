@@ -313,3 +313,38 @@ def test_update_respects_the_workers_option(tmp_path, monkeypatch):
         assert source.max_workers == 5
     finally:
         source.max_workers = original
+
+
+def test_symbols_with_different_start_dates_still_batch_together(tmp_path, monkeypatch):
+    """시작일이 제각각이어도 1종목짜리 요청으로 쪼개지면 안 된다.
+
+    시작일별로 묶으면 마지막 갱신일이 서로 다른 종목은 단독 묶음이 되고,
+    fetch_many 가 순차 경로로 빠져 동시 요청이 아예 걸리지 않는다.
+    """
+    monkeypatch.setenv("CHARTFINDER_HOME", str(tmp_path))
+    from chartfinder.datasource import get_source
+
+    source = get_source("demo")
+    symbols = [t.symbol for t in source.list_tickers()][:9]
+
+    cache.update("demo", symbols=symbols, years=2)
+    # 종목마다 마지막 날짜를 다르게 잘라 시작일을 흩뜨린다
+    # (앞쪽은 그대로 두어야 소급 채우기로 한 묶음이 되지 않는다)
+    for offset, sym in enumerate(symbols):
+        df = cache.load("demo", sym)
+        cache.save("demo", sym, df.iloc[: len(df) - offset * 3 - 1])
+
+    sizes = []
+    original = source.fetch_many
+
+    def spy(chunk, start, end):
+        sizes.append(len(chunk))
+        return original(chunk, start, end)
+
+    monkeypatch.setattr(source, "fetch_many", spy)
+    monkeypatch.setattr(source, "batch_size", 4, raising=False)
+    cache.update("demo", symbols=symbols, years=2)
+
+    assert sizes, "시세를 아예 받지 않았다"
+    assert sizes.count(1) <= 1, f"단독 요청이 너무 많다: {sizes}"
+    assert max(sizes) == 4
