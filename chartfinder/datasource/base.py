@@ -48,6 +48,8 @@ class DataSource(abc.ABC):
     def fetch_ohlcv(self, symbol: str, start: date, end: date) -> pd.DataFrame:
         """종목 하나의 일봉."""
 
+    #: 동시에 보낼 요청 수. 1이면 순차. 너무 크게 잡으면 상대 서버가 막는다.
+    max_workers: int = 1
     #: 투자자별 순매수(외국인·기관 수급)를 받을 수 있는 소스인지
     supports_flows: bool = False
     #: 재무 데이터를 받을 수 있는 소스인지
@@ -64,13 +66,41 @@ class DataSource(abc.ABC):
     def fetch_many(
         self, symbols: list[str], start: date, end: date
     ) -> dict[str, pd.DataFrame]:
-        """여러 종목을 한 번에. 기본 구현은 순차 호출, 소스가 배치를 지원하면 재정의."""
+        """여러 종목을 한 번에.
+
+        종목당 1회 요청인 소스는 대부분의 시간을 응답 대기로 쓴다. 동시에
+        여러 개를 요청하면 그만큼 빨라진다 (max_workers). 배치 API 가 있는
+        소스는 이 메서드를 재정의한다.
+        """
+        if self.max_workers <= 1 or len(symbols) < 2:
+            return self._fetch_many_sequential(symbols, start, end)
+
+        from concurrent.futures import ThreadPoolExecutor
+
+        out: dict[str, pd.DataFrame] = {}
+        with ThreadPoolExecutor(max_workers=self.max_workers) as pool:
+            futures = {
+                pool.submit(self._fetch_one, sym, start, end): sym for sym in symbols
+            }
+            for future in futures:
+                sym, df = future.result()
+                if df is not None and not df.empty:
+                    out[sym] = df
+        return out
+
+    def _fetch_one(self, symbol: str, start: date, end: date):
+        """한 종목. 실패해도 나머지를 멈추지 않는다."""
+        try:
+            return symbol, self.fetch_ohlcv(symbol, start, end)
+        except Exception:
+            return symbol, None
+
+    def _fetch_many_sequential(
+        self, symbols: list[str], start: date, end: date
+    ) -> dict[str, pd.DataFrame]:
         out: dict[str, pd.DataFrame] = {}
         for sym in symbols:
-            try:
-                df = self.fetch_ohlcv(sym, start, end)
-            except Exception:
-                continue
+            _, df = self._fetch_one(sym, start, end)
             if df is not None and not df.empty:
                 out[sym] = df
         return out

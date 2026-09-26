@@ -227,6 +227,7 @@ def update(
     symbols: list[str] | None = None,
     force: bool = False,
     flows: bool = False,
+    workers: int | None = None,
     progress: ProgressFn | None = None,
 ) -> dict[str, int]:
     """캐시를 최신 상태로 만든다.
@@ -236,6 +237,9 @@ def update(
     수급 수집이 실패하면 첫 실패 사유가 'flow_error' 에 담긴다.
     """
     source = get_source(market)
+    if workers:
+        # 종목당 1회 요청인 소스는 동시 요청 수가 곧 속도다
+        source.max_workers = max(1, workers)
     if symbols is None:
         symbols = [t.symbol for t in get_tickers(market, universe, refresh=force)]
 

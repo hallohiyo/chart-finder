@@ -105,6 +105,10 @@ def update_cache(
         False, "--fundamentals",
         help="재무 데이터(매출·영업이익·ROE 등)도 함께 수집. 종목당 1회 요청이라 느리다",
     ),
+    workers: Optional[int] = typer.Option(
+        None, "--workers", "-w",
+        help="동시에 보낼 요청 수 (기본 8). 늘리면 빨라지지만 너무 크면 서버가 막는다",
+    ),
     limit: Optional[int] = typer.Option(None, "--limit", help="앞에서 N종목만 (시험용)"),
 ) -> None:
     """일봉 데이터를 내려받아 로컬 캐시를 갱신한다."""
@@ -125,7 +129,7 @@ def update_cache(
 
         stats = cache.update(
             market, universe, years=years, symbols=symbols, force=force,
-            flows=flows, progress=on_progress,
+            flows=flows, workers=workers, progress=on_progress,
         )
         bar.update(task, completed=bar.tasks[0].total)
 

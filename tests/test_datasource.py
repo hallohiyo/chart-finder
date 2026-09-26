@@ -396,3 +396,74 @@ def test_pykrx_chatter_does_not_reach_the_console(krx, monkeypatch, capsys):
 
     krx._flows_pykrx("005930", date(2026, 9, 1), date(2026, 9, 20))
     assert "Error occurred" not in capsys.readouterr().out
+
+
+# --------------------------------------------------------------------------- 동시 요청
+
+
+def _slow_source(workers: int, delay: float = 0.05, failing: set | None = None):
+    from chartfinder.datasource.base import DataSource
+
+    class Slow(DataSource):
+        market = "slow"
+        max_workers = workers
+
+        def list_tickers(self, universe="all"):
+            return []
+
+        def fetch_ohlcv(self, symbol, start, end):
+            import time
+
+            time.sleep(delay)
+            if failing and symbol in failing:
+                raise ConnectionError("차단")
+            return _ohlcv_frame(3)
+
+    return Slow()
+
+
+def test_fetch_many_returns_every_symbol(offline):
+    source = _slow_source(workers=4, delay=0)
+    symbols = [f"{i:06d}" for i in range(10)]
+    assert set(source.fetch_many(symbols, date(2024, 1, 1), date(2024, 2, 1))) == set(symbols)
+
+
+def test_one_failure_does_not_stop_the_batch(offline):
+    source = _slow_source(workers=4, delay=0, failing={"000003"})
+    symbols = [f"{i:06d}" for i in range(6)]
+    got = source.fetch_many(symbols, date(2024, 1, 1), date(2024, 2, 1))
+    assert "000003" not in got
+    assert len(got) == 5
+
+
+def test_parallel_and_sequential_agree(offline):
+    symbols = [f"{i:06d}" for i in range(8)]
+    window = (date(2024, 1, 1), date(2024, 2, 1))
+    sequential = _slow_source(workers=1, delay=0).fetch_many(symbols, *window)
+    parallel = _slow_source(workers=4, delay=0).fetch_many(symbols, *window)
+
+    assert set(sequential) == set(parallel)
+    for symbol in sequential:
+        pd.testing.assert_frame_equal(sequential[symbol], parallel[symbol])
+
+
+def test_parallel_is_faster_when_waiting_on_responses(offline):
+    """종목당 1회 요청인 소스는 대부분의 시간을 응답 대기로 쓴다."""
+    import time
+
+    symbols = [f"{i:06d}" for i in range(12)]
+    window = (date(2024, 1, 1), date(2024, 2, 1))
+
+    start = time.monotonic()
+    _slow_source(workers=1, delay=0.02).fetch_many(symbols, *window)
+    sequential = time.monotonic() - start
+
+    start = time.monotonic()
+    _slow_source(workers=6, delay=0.02).fetch_many(symbols, *window)
+    parallel = time.monotonic() - start
+
+    assert parallel < sequential / 2
+
+
+def test_krx_defaults_to_parallel_fetching(krx):
+    assert krx.max_workers > 1

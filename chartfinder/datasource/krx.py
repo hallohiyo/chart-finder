@@ -18,6 +18,11 @@ FLOW_CHUNK_DAYS = 180
 class KrxSource(DataSource):
     market = "kr"
     universes = ("all", "kospi", "kosdaq")
+    #: 종목당 1회 요청이라 순차로 받으면 2,600종목에 한 시간이 걸린다.
+    #: 8이면 대체로 8배 가까이 빨라지고, 그 이상은 상대 서버가 막기 시작한다.
+    max_workers = 8
+    #: 이 단위로 받고 진행률을 갱신한다
+    batch_size = 24
     supports_flows = True
     supports_fundamentals = True
 

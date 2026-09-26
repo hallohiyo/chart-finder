@@ -299,3 +299,17 @@ def test_update_does_not_backfill_twice(tmp_path, monkeypatch):
 
     assert again["backfilled"] == 0
     assert again["skipped"] == 3
+
+
+def test_update_respects_the_workers_option(tmp_path, monkeypatch):
+    monkeypatch.setenv("CHARTFINDER_HOME", str(tmp_path))
+    from chartfinder.datasource import get_source
+
+    source = get_source("demo")
+    original = source.max_workers
+    try:
+        symbols = [t.symbol for t in source.list_tickers()][:2]
+        cache.update("demo", symbols=symbols, years=1, workers=5)
+        assert source.max_workers == 5
+    finally:
+        source.max_workers = original
