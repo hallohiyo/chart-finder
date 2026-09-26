@@ -11,7 +11,6 @@ from . import cache
 from .datasource import get_source
 from .conditions import Ctx, get as get_condition
 from .conditions.builtin import FUNDAMENTAL as FUNDAMENTAL_CATEGORY
-from .conditions.builtin import PROFILE as PROFILE_CATEGORY
 
 #: 비교 지수를 필요로 하는 조건. 카테고리로는 구분되지 않아 이름으로 둔다.
 _BENCHMARK_CONDITIONS = frozenset({"relative_strength"})
@@ -74,6 +73,89 @@ def score_one(
     return {spec.key: get_condition(spec.key).score(ctx, spec.params) for spec in specs}
 
 
+#: 저장 파일에 쓸 한글 머리글. 엑셀에서 바로 읽히도록.
+EXPORT_LABELS = {
+    "symbol": "종목코드",
+    "name": "종목명",
+    "score": "적합도",
+    "strategy": "맞는 전략",
+    "matched": "충족 조건수",
+    "close": "현재가",
+    "chg_pct": "등락률(%)",
+    "date": "기준일",
+    "overall": "전체 적합도",
+    "turnover_20d": "거래대금 20일평균(억)",
+    "marcap": "시가총액(억)",
+    "foreign_net_5d": "외국인 순매수 5일(주)",
+    "foreign_net_20d": "외국인 순매수 20일(주)",
+    "inst_net_5d": "기관 순매수 5일(주)",
+    "inst_net_20d": "기관 순매수 20일(주)",
+    "both_buy_days_20d": "쌍끌이 일수 20일",
+}
+
+
+def export_frame(result: pd.DataFrame) -> pd.DataFrame:
+    """저장용으로 머리글을 한글로 바꾼다.
+
+    내부 컬럼명은 영문으로 두고 (코드가 참조한다) 파일만 읽기 쉽게 만든다.
+    전략별 점수(p_...)와 조건별 점수(s_...)는 이름을 그대로 쓴다.
+    """
+    out = result.copy()
+    # 596612.8414485113 처럼 찍히면 엑셀에서 읽기 어렵다
+    if "close" in out.columns:
+        out["close"] = out["close"].round(2)
+    renamed = {column: EXPORT_LABELS.get(column, column) for column in out.columns}
+    return out.rename(columns=renamed)
+
+
+#: 점수가 아닌 실제 숫자 컬럼의 표시 순서
+FACT_COLUMNS = [
+    "turnover_20d", "marcap",
+    "foreign_net_5d", "foreign_net_20d",
+    "inst_net_5d", "inst_net_20d",
+    "both_buy_days_20d",
+]
+
+
+def facts(df: pd.DataFrame, profile: dict[str, float] | None = None) -> dict[str, Any]:
+    """점수가 아닌 '실제 숫자' 컬럼.
+
+    점수만 저장하면 왜 뽑혔는지 확인할 수 없다. 외국인·기관이 며칠 동안 몇 주를
+    담았는지, 거래대금이 얼마인지 같은 원 숫자를 결과에 같이 싣는다.
+    수급을 받지 않은 캐시에서는 그 컬럼이 아예 생기지 않는다.
+    """
+    out: dict[str, Any] = {}
+
+    turnover = (df["close"] * df["volume"]).tail(20).mean()
+    if pd.notna(turnover):
+        out["turnover_20d"] = round(float(turnover) / 1e8, 1)  # 억원
+
+    if profile:
+        marcap = profile.get("marcap")
+        if marcap is not None and pd.notna(marcap):
+            out["marcap"] = round(float(marcap) / 1e8, 0)  # 억원
+
+    for column, label in (("foreign_net", "foreign"), ("inst_net", "inst")):
+        if column not in df.columns:
+            continue
+        series = pd.to_numeric(df[column], errors="coerce").dropna()
+        if series.empty:
+            continue
+        for days in (5, 20):
+            out[f"{label}_net_{days}d"] = int(series.tail(days).sum())
+
+    # 외국인·기관이 같은 날 함께 담은 날수 (최근 20일)
+    if "foreign_net" in df.columns and "inst_net" in df.columns:
+        pair = df[["foreign_net", "inst_net"]].apply(
+            pd.to_numeric, errors="coerce"
+        ).dropna().tail(20)
+        if not pair.empty:
+            out["both_buy_days_20d"] = int(
+                ((pair["foreign_net"] > 0) & (pair["inst_net"] > 0)).sum()
+            )
+    return out
+
+
 def _benchmarks_for(market: str, specs: Iterable[ConditionSpec]) -> dict[str, pd.DataFrame]:
     """상대강도 조건이 있을 때만 지수를 읽는다. {지수이름: 일봉}."""
     if not any(spec.key in _BENCHMARK_CONDITIONS for spec in specs):
@@ -100,9 +182,11 @@ def _benchmark_of(
 def _profiles_for(
     market: str, specs: Iterable[ConditionSpec]
 ) -> pd.DataFrame | None:
-    """종목정보 조건이 있을 때만 스냅샷을 읽는다."""
-    if not any(get_condition(spec.key).category == PROFILE_CATEGORY for spec in specs):
-        return None
+    """종목 정보 스냅샷. 시장당 파일 하나라 조건 유무와 무관하게 읽는다.
+
+    종목정보 조건이 없어도 시가총액 같은 숫자를 결과에 실어야 하고, 읽기
+    비용은 파일 한 번이라 무시할 수 있다.
+    """
     return cache.load_profiles(market)
 
 
@@ -218,6 +302,7 @@ def screen_multi(
             "overall": round(overall, 4),
         }
         row.update({f"p_{label}": round(value, 3) for label, value in per_strategy.items()})
+        row.update(facts(df, _profile_of(profiles, ticker.symbol)))
         rows.append(row)
 
     columns = [
@@ -226,7 +311,10 @@ def screen_multi(
     if not rows:
         return pd.DataFrame(columns=columns)
 
-    result = pd.DataFrame(rows)[columns]
+    # 실제 숫자 컬럼은 데이터가 있을 때만 생긴다 (수급을 안 받으면 없다)
+    frame = pd.DataFrame(rows)
+    columns += [c for c in FACT_COLUMNS if c in frame.columns]
+    result = frame[columns]
     result = result.sort_values(
         ["score", "overall", "chg_pct"], ascending=[False, False, False]
     ).reset_index(drop=True)
@@ -295,6 +383,7 @@ def screen(
             "date": df.index[-1].date(),
         }
         row.update({f"s_{k}": round(v, 3) for k, v in scores.items()})
+        row.update(facts(df, _profile_of(profiles, ticker.symbol)))
         rows.append(row)
 
     columns = ["symbol", "name", "score", "matched", "close", "chg_pct", "date"] + [
@@ -303,7 +392,9 @@ def screen(
     if not rows:
         return pd.DataFrame(columns=columns)
 
-    result = pd.DataFrame(rows)[columns]
+    frame = pd.DataFrame(rows)
+    columns += [c for c in FACT_COLUMNS if c in frame.columns]
+    result = frame[columns]
     result = result.sort_values(
         ["score", "matched", "chg_pct"], ascending=[False, False, False]
     ).reset_index(drop=True)

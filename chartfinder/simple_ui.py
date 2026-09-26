@@ -542,7 +542,9 @@ class App(tk.Tk):
             initialfile="찾은종목.csv",
         )
         if path:
-            self.result.to_csv(path, index=False, encoding="utf-8-sig")
+            from chartfinder.screener import export_frame
+
+            export_frame(self.result).to_csv(path, index=False, encoding="utf-8-sig")
             self.status.set(f"저장했습니다: {path}")
 
     def on_advanced(self) -> None:

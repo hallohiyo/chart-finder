@@ -161,3 +161,64 @@ def test_accumulation_preset_is_complete():
     assert {"both_net_buy", "net_buy_ratio", "net_buy_value"} <= keys
     for spec in preset.conditions:
         get_condition(spec.key)
+
+
+# --------------------------------------------------------------- 저장 파일
+
+
+def test_saved_file_carries_the_actual_flow_numbers(tmp_path, monkeypatch):
+    """점수만 저장하면 왜 뽑혔는지 확인할 수 없다."""
+    monkeypatch.setenv("CHARTFINDER_HOME", str(tmp_path))
+    from chartfinder import cache
+    from chartfinder.datasource import get_source
+    from chartfinder.screener import ConditionSpec, export_frame, screen
+
+    symbols = [t.symbol for t in get_source("demo").list_tickers()][:8]
+    cache.update("demo", symbols=symbols, years=1, flows=True)
+    cache.update_profiles("demo", symbols=symbols)
+
+    result = screen(
+        "demo", [ConditionSpec("both_net_buy")],
+        tickers=cache.get_tickers("demo", "all")[:8],
+    )
+    for column in ("foreign_net_5d", "inst_net_5d", "both_buy_days_20d",
+                   "turnover_20d", "marcap"):
+        assert column in result.columns, column
+
+    saved = export_frame(result)
+    assert "외국인 순매수 5일(주)" in saved.columns
+    assert "기관 순매수 20일(주)" in saved.columns
+    assert "쌍끌이 일수 20일" in saved.columns
+    # 내부 컬럼명은 그대로 남아야 한다 (코드가 참조한다)
+    assert "score" in result.columns
+
+
+def test_flow_columns_are_absent_without_flow_data(tmp_path, monkeypatch):
+    """수급을 안 받았으면 빈 컬럼을 만들지 않는다 (0 으로 채우면 오해를 준다)."""
+    monkeypatch.setenv("CHARTFINDER_HOME", str(tmp_path))
+    from chartfinder import cache
+    from chartfinder.datasource import get_source
+    from chartfinder.screener import ConditionSpec, screen
+
+    symbols = [t.symbol for t in get_source("demo").list_tickers()][:5]
+    cache.update("demo", symbols=symbols, years=1)
+    # 데모 일봉에는 합성 수급이 섞여 있으므로 지운다
+    for sym in symbols:
+        df = cache.load("demo", sym)
+        cache.save("demo", sym, df.drop(columns=[c for c in df.columns if c.endswith("_net")]))
+
+    result = screen(
+        "demo", [ConditionSpec("turnover_value")],
+        tickers=cache.get_tickers("demo", "all")[:5],
+    )
+    assert "foreign_net_5d" not in result.columns
+    assert "turnover_20d" in result.columns  # 시세만으로 되는 건 남아야 한다
+
+
+def test_export_rounds_the_price():
+    import pandas as pd
+
+    from chartfinder.screener import export_frame
+
+    frame = pd.DataFrame({"symbol": ["A"], "close": [596_612.8414485113]})
+    assert export_frame(frame)["현재가"].iloc[0] == 596_612.84

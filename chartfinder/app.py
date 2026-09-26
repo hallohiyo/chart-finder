@@ -19,7 +19,7 @@ from chartfinder.charts import candle_chart
 from chartfinder.conditions import by_category, get as get_condition
 from chartfinder.datasource import MARKETS, universes
 from chartfinder.presets import Preset
-from chartfinder.screener import ConditionSpec, screen
+from chartfinder.screener import ConditionSpec, export_frame, screen
 
 PRESET_DIR = presets_mod.default_dir()
 
@@ -250,7 +250,7 @@ if result is not None:
 
         st.download_button(
             "CSV 내려받기",
-            result.to_csv(index=False).encode("utf-8-sig"),
+            export_frame(result).to_csv(index=False).encode("utf-8-sig"),
             file_name=f"scan_{st.session_state.result_market}.csv",
             mime="text/csv",
         )

@@ -19,7 +19,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from chartfinder import cache, presets as presets_mod
 from chartfinder.conditions import by_category, get as get_condition
 from chartfinder.datasource import MARKETS, universes
-from chartfinder.screener import ConditionSpec, screen
+from chartfinder.screener import ConditionSpec, export_frame, screen
 
 MARKET_LABELS = {"kr": "한국", "us": "미국", "demo": "데모(오프라인)"}
 PRESET_DIR = presets_mod.default_dir()
@@ -391,7 +391,7 @@ class App(tk.Tk):
             initialfile=f"scan_{self.result_market}.csv",
         )
         if path:
-            self.result.to_csv(path, index=False, encoding="utf-8-sig")
+            export_frame(self.result).to_csv(path, index=False, encoding="utf-8-sig")
             self.status.set(f"저장됨: {path}")
 
     def on_load_preset(self) -> None:

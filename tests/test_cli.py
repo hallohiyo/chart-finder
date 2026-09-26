@@ -83,7 +83,10 @@ def test_scan_writes_csv(demo_home, tmp_path):
     )
     assert result.exit_code == 0, result.output
     assert out.exists()
-    assert "symbol" in out.read_text(encoding="utf-8-sig")
+    # 저장 파일은 엑셀에서 바로 읽히도록 한글 머리글을 쓴다
+    saved = out.read_text(encoding="utf-8-sig")
+    assert "종목코드" in saved
+    assert "적합도" in saved
 
 
 def test_status_reports_cache(demo_home):

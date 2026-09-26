@@ -14,7 +14,7 @@ import pandas as pd
 from . import cache, presets as presets_mod
 from .conditions import all_conditions, by_category, get as get_condition
 from .datasource import MARKETS, default_universe, universes
-from .screener import ConditionSpec, screen, unscored_conditions
+from .screener import ConditionSpec, export_frame, screen, unscored_conditions
 
 #: 프리셋 폴더 (--all 이 여기를 훑는다)
 PRESET_DIR = presets_mod.default_dir()
@@ -689,7 +689,7 @@ def scan(
 
     if csv:
         csv.parent.mkdir(parents=True, exist_ok=True)
-        result.to_csv(csv, index=False, encoding="utf-8-sig")
+        export_frame(result).to_csv(csv, index=False, encoding="utf-8-sig")
         console.print(f"[green]저장[/] {csv}")
 
 
@@ -760,7 +760,7 @@ def _scan_multi(
 
     if csv:
         csv.parent.mkdir(parents=True, exist_ok=True)
-        result.to_csv(csv, index=False, encoding="utf-8-sig")
+        export_frame(result).to_csv(csv, index=False, encoding="utf-8-sig")
         console.print(f"[green]저장[/] {csv}")
 
 
