@@ -223,3 +223,12 @@ def test_unscored_conditions_are_reported_after_a_search(app):
     })
     app._show_result(result)
     assert "매출액 증가" in app.unscored_note.cget("text")
+
+
+def test_presets_are_found_from_any_working_directory(tmp_path, monkeypatch):
+    """바탕화면 바로가기로 실행하면 현재 폴더가 저장소가 아니다."""
+    from chartfinder.presets import default_dir, load_all
+
+    monkeypatch.chdir(tmp_path)
+    assert default_dir().is_dir()
+    assert load_all()  # 인자 없이도 찾아야 한다

@@ -36,7 +36,7 @@ def _duration(seconds: float) -> str:
     return f"{hours}시간 {minutes}분"
 
 
-PRESET_DIR = Path("presets")
+PRESET_DIR = presets_mod.default_dir()
 MARKETS = (("kr", "한국 주식"), ("us", "미국 주식"), ("demo", "연습용 (가짜 데이터)"))
 COLUMNS = ("순위", "종목명", "종목코드", "현재가", "등락", "적합도", "맞는 전략")
 #: 수집 기간 (년). 초보자에게 물어볼 값이 아니라 고정한다.

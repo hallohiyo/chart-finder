@@ -1,0 +1,3 @@
+# 배치 파일은 CP949 + CRLF 로 저장돼 있다. git 이 손대면 한글이 깨진다.
+*.bat -text
+*.sh text eol=lf

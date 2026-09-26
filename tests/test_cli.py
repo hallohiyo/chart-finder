@@ -151,3 +151,24 @@ def test_backtest_all_presets_compares_strategies(demo_home):
     assert result.exit_code in (0, 1), result.output
     if result.exit_code == 0:
         assert "전략 비교" in result.output or "표본이 없습니다" in result.output
+
+
+def test_launcher_scripts_are_windows_ready():
+    """배치 파일은 CRLF + CP949 여야 한다. 아니면 한글이 깨지고 goto 가 어긋난다."""
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[1]
+    for name in ("주식찾기.bat", "고급화면.bat"):
+        raw = (root / name).read_bytes()
+        assert b"\r\n" in raw, name
+        assert raw.count(b"\n") == raw.count(b"\r\n"), f"{name}: LF 단독 줄이 섞여 있다"
+        raw.decode("cp949")  # 디코딩되지 않으면 예외
+
+
+def test_launcher_starts_the_simple_ui():
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[1]
+    text = (root / "주식찾기.bat").read_bytes().decode("cp949")
+    assert "chartfinder.simple_ui" in text
+    assert "pythonw.exe" in text  # 검은 명령창이 남지 않도록

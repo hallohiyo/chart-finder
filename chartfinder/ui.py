@@ -22,7 +22,7 @@ from chartfinder.datasource import MARKETS, universes
 from chartfinder.screener import ConditionSpec, screen
 
 MARKET_LABELS = {"kr": "한국", "us": "미국", "demo": "데모(오프라인)"}
-PRESET_DIR = Path("presets")
+PRESET_DIR = presets_mod.default_dir()
 BASE_COLUMNS = ("순위", "종목", "이름", "점수", "충족", "종가", "등락%")
 
 

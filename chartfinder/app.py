@@ -21,7 +21,7 @@ from chartfinder.datasource import MARKETS, universes
 from chartfinder.presets import Preset
 from chartfinder.screener import ConditionSpec, screen
 
-PRESET_DIR = Path("presets")
+PRESET_DIR = presets_mod.default_dir()
 
 st.set_page_config(page_title="차트 조건 검색기", page_icon="📈", layout="wide")
 

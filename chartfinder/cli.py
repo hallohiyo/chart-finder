@@ -16,7 +16,7 @@ from .datasource import MARKETS, default_universe, universes
 from .screener import ConditionSpec, screen, unscored_conditions
 
 #: 프리셋 폴더 (--all 이 여기를 훑는다)
-PRESET_DIR = Path("presets")
+PRESET_DIR = presets_mod.default_dir()
 
 app = typer.Typer(
     add_completion=False,
@@ -814,9 +814,10 @@ def _print_backtest(result) -> None:
 
 @app.command("presets")
 def show_presets(
-    folder: Path = typer.Option(Path("presets"), "--folder", "-f", help="프리셋 폴더"),
+    folder: Optional[Path] = typer.Option(None, "--folder", "-f", help="프리셋 폴더"),
 ) -> None:
     """프리셋 목록을 보여준다."""
+    folder = folder or PRESET_DIR
     paths = presets_mod.list_presets(folder)
     if not paths:
         console.print(f"[yellow]{folder} 에 프리셋이 없습니다.[/]")

@@ -11,6 +11,18 @@ import yaml
 from .screener import ConditionSpec
 
 
+def default_dir() -> Path:
+    """프리셋 폴더.
+
+    바탕화면 바로가기처럼 현재 폴더가 다른 곳에서 실행돼도 찾을 수 있도록
+    설치된 위치를 먼저 본다. 거기 없으면 현재 폴더의 presets 를 쓴다.
+    """
+    packaged = Path(__file__).resolve().parents[1] / "presets"
+    if packaged.is_dir():
+        return packaged
+    return Path("presets")
+
+
 @dataclass
 class Preset:
     name: str
@@ -79,8 +91,8 @@ def save(preset: Preset, path: str | Path) -> Path:
     return path
 
 
-def list_presets(folder: str | Path = "presets") -> list[Path]:
-    folder = Path(folder)
+def list_presets(folder: str | Path | None = None) -> list[Path]:
+    folder = Path(folder) if folder is not None else default_dir()
     if not folder.exists():
         return []
     return sorted(p for p in folder.glob("*.yaml"))
@@ -116,7 +128,7 @@ def indicator_tags(preset: Preset) -> list[str]:
     return seen
 
 
-def load_all(folder: str | Path = "presets") -> list[tuple[Path, Preset]]:
+def load_all(folder: str | Path | None = None) -> list[tuple[Path, Preset]]:
     """모든 프리셋을 order 순으로 (경로, 프리셋) 목록으로."""
     loaded = [(path, load(path)) for path in list_presets(folder)]
     return sorted(loaded, key=lambda item: (item[1].order, item[1].name))
