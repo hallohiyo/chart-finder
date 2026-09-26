@@ -171,15 +171,29 @@ class KrxSource(DataSource):
         if not dart.enabled():
             raise RuntimeError("DART_API_KEY 가 없어 대주주 지분율·CB/BW·유상증자는 건너뜁니다.")
 
+        # 종목당 2회 요청이라 순차로 받으면 2,600종목에 몇 시간이 걸린다.
+        # DART 는 분당 호출 제한이 있어 시세보다 보수적으로 잡는다.
+        from concurrent.futures import ThreadPoolExecutor
+
+        def one(symbol: str) -> tuple[str, float | None, float | None]:
+            try:
+                pct = dart.fetch_major_holder_pct(symbol)
+            except Exception:
+                pct = None
+            try:
+                shares = dart.fetch_dilution_shares(symbol)
+            except Exception:
+                shares = None
+            return symbol, pct, shares
+
         major: dict[str, float] = {}
         dilution: dict[str, float] = {}
-        for symbol in frame.index:
-            pct = dart.fetch_major_holder_pct(symbol)
-            if pct is not None:
-                major[symbol] = pct
-            shares = dart.fetch_dilution_shares(symbol)
-            if shares is not None:
-                dilution[symbol] = shares
+        with ThreadPoolExecutor(max_workers=min(self.max_workers, 4)) as pool:
+            for symbol, pct, shares in pool.map(one, list(frame.index)):
+                if pct is not None:
+                    major[symbol] = pct
+                if shares is not None:
+                    dilution[symbol] = shares
         if major:
             frame["major_pct"] = pd.Series(major).reindex(frame.index)
         if dilution:

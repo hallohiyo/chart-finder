@@ -294,7 +294,7 @@ class App(tk.Tk):
             )
             if fundamentals:
                 fund = cache.update_fundamentals(
-                    market, universe,
+                    market, universe, workers=8,
                     progress=lambda done, total, sym: self.report(
                         done, total, f"재무 수집 {done}/{total} · {sym}"
                     ),

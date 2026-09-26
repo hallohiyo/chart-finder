@@ -348,3 +348,109 @@ def test_symbols_with_different_start_dates_still_batch_together(tmp_path, monke
     assert sizes, "시세를 아예 받지 않았다"
     assert sizes.count(1) <= 1, f"단독 요청이 너무 많다: {sizes}"
     assert max(sizes) == 4
+
+
+def _concurrency_probe():
+    """동시에 몇 개가 떠 있었는지 기록하는 계측기."""
+    import threading
+
+    state = {"now": 0, "peak": 0}
+    lock = threading.Lock()
+
+    def wrap(fn):
+        def inner(*args, **kwargs):
+            with lock:
+                state["now"] += 1
+                state["peak"] = max(state["peak"], state["now"])
+            try:
+                import time
+
+                time.sleep(0.02)  # 실제 왕복이 있어야 겹침이 관찰된다
+                return fn(*args, **kwargs)
+            finally:
+                with lock:
+                    state["now"] -= 1
+
+        return inner
+
+    return state, wrap
+
+
+def test_flows_are_fetched_concurrently(tmp_path, monkeypatch):
+    """수급이 순차로 나가면 시세를 병렬로 받은 효과가 전부 상쇄된다."""
+    monkeypatch.setenv("CHARTFINDER_HOME", str(tmp_path))
+    from chartfinder.datasource import get_source
+
+    source = get_source("demo")
+    symbols = [t.symbol for t in source.list_tickers()][:16]
+    state, wrap = _concurrency_probe()
+    monkeypatch.setattr(source, "fetch_flows", wrap(source.fetch_flows))
+
+    stats = cache.update("demo", symbols=symbols, years=1, flows=True, workers=8)
+
+    assert stats["flows"] == 16
+    assert state["peak"] > 1, "수급 요청이 한 번에 하나씩만 나갔다"
+
+
+def test_flow_only_refresh_is_also_concurrent(tmp_path, monkeypatch):
+    """시세가 최신이고 수급만 빠진 두 번째 실행도 병렬이어야 한다."""
+    monkeypatch.setenv("CHARTFINDER_HOME", str(tmp_path))
+    from chartfinder.datasource import get_source
+
+    source = get_source("demo")
+    symbols = [t.symbol for t in source.list_tickers()][:16]
+    cache.update("demo", symbols=symbols, years=1)  # 시세만
+    # 데모 일봉에는 합성 수급이 섞여 있으므로 지워서 '수급만 빠진' 상태를 만든다
+    for sym in symbols:
+        df = cache.load("demo", sym)
+        cache.save("demo", sym, df.drop(columns=[c for c in df.columns if c.endswith("_net")]))
+
+    state, wrap = _concurrency_probe()
+    monkeypatch.setattr(source, "fetch_flows", wrap(source.fetch_flows))
+    stats = cache.update("demo", symbols=symbols, years=1, flows=True, workers=8)
+
+    assert stats["flows"] == 16
+    assert state["peak"] > 1
+
+
+def test_fundamentals_are_fetched_concurrently(tmp_path, monkeypatch):
+    monkeypatch.setenv("CHARTFINDER_HOME", str(tmp_path))
+    from chartfinder.datasource import get_source
+
+    source = get_source("demo")
+    symbols = [t.symbol for t in source.list_tickers()][:16]
+    state, wrap = _concurrency_probe()
+    monkeypatch.setattr(source, "fetch_fundamentals", wrap(source.fetch_fundamentals))
+
+    stats = cache.update_fundamentals("demo", symbols=symbols, workers=8)
+
+    assert stats["updated"] == 16
+    assert state["peak"] > 1, "재무 요청이 한 번에 하나씩만 나갔다"
+
+
+def test_chunk_is_never_smaller_than_the_worker_count(tmp_path, monkeypatch):
+    """batch_size 는 진행률 단위일 뿐, 그게 1이어도 병렬은 걸려야 한다."""
+    monkeypatch.setenv("CHARTFINDER_HOME", str(tmp_path))
+    from chartfinder.datasource import get_source
+
+    source = get_source("demo")
+    assert getattr(source, "batch_size", 1) == 1  # 데모는 진행률 단위가 1이다
+    source.max_workers = 8
+    try:
+        assert cache._chunk_size(source) == 8
+    finally:
+        source.max_workers = 1
+
+
+def test_fundamentals_progress_reaches_the_end(tmp_path, monkeypatch):
+    """조각 단위로 처리하더라도 진행률이 끝까지 차야 한다."""
+    monkeypatch.setenv("CHARTFINDER_HOME", str(tmp_path))
+    from chartfinder.datasource import get_source
+
+    symbols = [t.symbol for t in get_source("demo").list_tickers()][:7]
+    seen = []
+    cache.update_fundamentals(
+        "demo", symbols=symbols, workers=4,
+        progress=lambda done, total, sym: seen.append((done, total)),
+    )
+    assert seen[-1] == (7, 7)

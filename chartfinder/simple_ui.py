@@ -54,6 +54,8 @@ MARKETS = (("kr", "한국 주식"), ("us", "미국 주식"), ("demo", "연습용
 COLUMNS = ("순위", "종목명", "종목코드", "현재가", "등락", "적합도", "맞는 전략")
 #: 수집 기간 (년). 초보자에게 물어볼 값이 아니라 고정한다.
 YEARS = 2
+#: 동시에 보낼 요청 수. 시세·수급·재무 모두 여기에 맞춰 병렬로 받는다.
+WORKERS = 8
 
 
 class App(tk.Tk):
@@ -382,13 +384,13 @@ class App(tk.Tk):
         def work():
             kwargs = {"universe": universe} if universe else {}
             stats = cache.update(
-                market, years=YEARS, flows=flows,
+                market, years=YEARS, flows=flows, workers=WORKERS,
                 progress=lambda done, total, sym: self.report(done, total, "시세 받는 중"),
                 **kwargs,
             )
             if fundamentals:
                 fund = cache.update_fundamentals(
-                    market,
+                    market, workers=WORKERS,
                     progress=lambda done, total, sym: self.report(done, total, "실적 받는 중"),
                     **kwargs,
                 )

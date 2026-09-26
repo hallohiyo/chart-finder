@@ -124,9 +124,14 @@ def update_fundamentals(
     universe: str = "all",
     symbols: list[str] | None = None,
     force: bool = False,
+    workers: int | None = None,
     progress: ProgressFn | None = None,
 ) -> dict[str, object]:
-    """재무 데이터를 받아 캐시한다. 종목당 1회 요청이라 시세보다 느리다."""
+    """재무 데이터를 받아 캐시한다.
+
+    종목당 1회 요청이다. 순차로 받으면 2,600종목에 한 시간이 넘으므로
+    시세와 같은 수의 요청을 동시에 보낸다.
+    """
     source = get_source(market)
     if not getattr(source, "supports_fundamentals", False):
         return {"updated": 0, "skipped": 0, "failed": 0,
@@ -135,27 +140,36 @@ def update_fundamentals(
     if symbols is None:
         symbols = [t.symbol for t in get_tickers(market, universe)]
 
+    if workers:
+        source.max_workers = max(1, workers)
+
     stats: dict[str, object] = {"updated": 0, "skipped": 0, "failed": 0}
+    todo = [s for s in symbols if force or not fundamentals_fresh(market, s)]
+    stats["skipped"] = len(symbols) - len(todo)
+
     total = len(symbols)
-    for done, symbol in enumerate(symbols, start=1):
-        if progress:
-            progress(done, total, symbol)
-        if not force and fundamentals_fresh(market, symbol):
-            stats["skipped"] += 1
-            continue
-        try:
-            df = source.fetch_fundamentals(symbol)
-        except Exception as exc:
-            stats["failed"] += 1
-            stats.setdefault("error", f"{type(exc).__name__}: {exc}")
-            continue
-        if df is None or df.empty:
-            stats["failed"] += 1
-            stats.setdefault("error", f"재무 응답이 비어 있습니다 ({symbol}).")
-            continue
-        save_fundamentals(market, symbol, df)
-        stats["updated"] += 1
-        stats["source"] = getattr(source, "_fundamental_provider", None)
+    done = stats["skipped"]
+    step = _chunk_size(source)
+    for i in range(0, len(todo), step):
+        chunk = todo[i : i + step]
+        outcomes = _parallel(source.fetch_fundamentals, chunk, source.max_workers)
+        for symbol in chunk:
+            outcome = outcomes.get(symbol)
+            if isinstance(outcome, Exception):
+                stats["failed"] += 1
+                stats.setdefault("error", f"{type(outcome).__name__}: {outcome}")
+            elif outcome is None or outcome.empty:
+                stats["failed"] += 1
+                stats.setdefault("error", f"재무 응답이 비어 있습니다 ({symbol}).")
+            else:
+                save_fundamentals(market, symbol, outcome)
+                stats["updated"] += 1
+                stats["source"] = getattr(source, "_fundamental_provider", None)
+            done += 1
+            if progress:
+                progress(done, total, symbol)
+    if progress:
+        progress(total, total, "")
     return stats
 
 
@@ -290,12 +304,18 @@ def merge(old: pd.DataFrame | None, new: pd.DataFrame) -> pd.DataFrame:
 def attach_flows(
     source, symbol: str, df: pd.DataFrame, start: date, end: date
 ) -> tuple[pd.DataFrame, int]:
-    """투자자별 순매수를 일봉 프레임에 컬럼으로 붙인다.
+    """투자자별 순매수를 받아 일봉 프레임에 컬럼으로 붙인다.
 
-    증분 갱신 시 받아온 구간만 덮어쓰고 그 밖의 기존 값은 보존한다.
     (프레임, 실제로 반영된 행 수)를 돌려준다 — 빈 응답을 성공으로 세지 않기 위해서.
     """
-    flows = source.fetch_flows(symbol, start, end)
+    return apply_flows(df, source.fetch_flows(symbol, start, end))
+
+
+def apply_flows(df: pd.DataFrame, flows: pd.DataFrame | None) -> tuple[pd.DataFrame, int]:
+    """이미 받아둔 수급을 일봉 프레임에 붙인다 (네트워크 없음).
+
+    증분 갱신 시 받아온 구간만 덮어쓰고 그 밖의 기존 값은 보존한다.
+    """
     if flows is None or flows.empty:
         return df, 0
     for col in flows.columns:
@@ -303,6 +323,40 @@ def attach_flows(
             df[col] = pd.NA
     df.update(flows)
     return df, int(len(df.index.intersection(flows.index)))
+
+
+def _chunk_size(source) -> int:
+    """한 번에 처리할 종목 수. 동시 요청 수보다 작으면 병렬이 무의미하다."""
+    batch = getattr(source, "batch_size", 1) or 1
+    return max(batch, getattr(source, "max_workers", 1) or 1, 1)
+
+
+def _parallel(fn: Callable[[str], object], symbols: list[str], workers: int) -> dict[str, object]:
+    """종목별 네트워크 호출을 동시에 보낸다. 예외는 그 종목의 값으로 담아 돌려준다.
+
+    수급·재무는 종목당 1회 요청이라 순차로 받으면 시세를 아무리 빨리 받아도
+    전체 시간이 줄지 않는다. 여기가 실제 병목이다.
+    """
+    if workers <= 1 or len(symbols) < 2:
+        results: dict[str, object] = {}
+        for symbol in symbols:
+            try:
+                results[symbol] = fn(symbol)
+            except Exception as exc:
+                results[symbol] = exc
+        return results
+
+    from concurrent.futures import ThreadPoolExecutor
+
+    results = {}
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        futures = {pool.submit(fn, symbol): symbol for symbol in symbols}
+        for future, symbol in futures.items():
+            try:
+                results[symbol] = future.result()
+            except Exception as exc:
+                results[symbol] = exc
+    return results
 
 
 def update(
@@ -376,7 +430,9 @@ def update(
     # 동시 요청이 아예 걸리지 않는다. 시작일 순으로 늘어놓고 묶음 경계를
     # 무시한 채 잘라서, 모든 종목이 같은 크기의 조각에 들어가게 한다.
     # 조각 안에서는 가장 이른 시작일을 쓴다 (더 받아도 병합 때 흡수된다).
-    step = getattr(source, "batch_size", 1) or 1
+    # batch_size 는 진행률 갱신 단위일 뿐이다. 그게 1인 소스에서는 조각도
+    # 1종목이 되어 동시 요청이 걸리지 않으므로, 하한을 동시 요청 수로 올린다.
+    step = _chunk_size(source)
     ordered = sorted(
         ((start, sym) for start, syms in buckets.items() for sym in syms),
         key=lambda pair: pair[0],
@@ -389,6 +445,17 @@ def update(
             fetched = source.fetch_many(chunk, start, fetch_end)
         except Exception:
             fetched = {}
+
+        # 수급도 조각 단위로 한꺼번에 받는다. 종목마다 순서대로 받으면
+        # 시세를 병렬로 받은 효과가 여기서 전부 상쇄된다.
+        flow_frames: dict[str, object] = {}
+        if want_flows:
+            flow_frames = _parallel(
+                lambda sym: source.fetch_flows(sym, start, fetch_end),
+                chunk,
+                source.max_workers,
+            )
+
         for sym in chunk:
             df = fetched.get(sym)
             if df is None or df.empty:
@@ -397,10 +464,13 @@ def update(
                 combined = merge(None if force else load(market, sym), df)
                 if want_flows:
                     # 수급 실패가 시세 저장을 막지는 않되, 이유는 남긴다
-                    try:
-                        combined, applied = attach_flows(
-                            source, sym, combined, start, fetch_end
+                    outcome = flow_frames.get(sym)
+                    if isinstance(outcome, Exception):
+                        stats.setdefault(
+                            "flow_error", f"{type(outcome).__name__}: {outcome}"
                         )
+                    else:
+                        combined, applied = apply_flows(combined, outcome)
                         if applied:
                             stats["flows"] += 1
                             stats["flow_source"] = getattr(source, "_flow_provider", None)
@@ -409,37 +479,47 @@ def update(
                                 "flow_error",
                                 f"수급 응답이 비어 있습니다 ({sym}, {start}~{today}).",
                             )
-                    except Exception as exc:
-                        stats.setdefault("flow_error", f"{type(exc).__name__}: {exc}")
                 save(market, sym, combined)
                 stats["updated"] += 1
             done += 1
             if progress:
                 progress(done, total, sym)
 
-    # 시세는 그대로 두고 수급만 채운다
-    for sym in flows_only:
-        df = load(market, sym)
-        if df is not None and not df.empty:
-            try:
-                updated, applied = attach_flows(
-                    source, sym, df, _flow_start(df, full_start), fetch_end
-                )
-                if applied:
-                    save(market, sym, updated)
-                    stats["flows"] += 1
-                    stats["flow_source"] = getattr(source, "_flow_provider", None)
+    # 시세는 그대로 두고 수급만 채운다 (여기도 조각 단위로 동시에 받는다)
+    for i in range(0, len(flows_only), step):
+        chunk = flows_only[i : i + step]
+        frames = {sym: load(market, sym) for sym in chunk}
+        starts = {
+            sym: _flow_start(df, full_start)
+            for sym, df in frames.items()
+            if df is not None and not df.empty
+        }
+        outcomes = _parallel(
+            lambda sym: source.fetch_flows(sym, starts[sym], fetch_end),
+            list(starts),
+            source.max_workers,
+        )
+        for sym in chunk:
+            df = frames.get(sym)
+            if df is not None and not df.empty:
+                outcome = outcomes.get(sym)
+                if isinstance(outcome, Exception):
+                    stats.setdefault("flow_error", f"{type(outcome).__name__}: {outcome}")
                 else:
-                    stats.setdefault(
-                        "flow_error",
-                        f"수급 응답이 비어 있습니다 "
-                        f"({sym}, {_flow_start(df, full_start)}~{today}).",
-                    )
-            except Exception as exc:
-                stats.setdefault("flow_error", f"{type(exc).__name__}: {exc}")
-        done += 1
-        if progress:
-            progress(done, total, sym)
+                    updated, applied = apply_flows(df, outcome)
+                    if applied:
+                        save(market, sym, updated)
+                        stats["flows"] += 1
+                        stats["flow_source"] = getattr(source, "_flow_provider", None)
+                    else:
+                        stats.setdefault(
+                            "flow_error",
+                            f"수급 응답이 비어 있습니다 "
+                            f"({sym}, {starts[sym]}~{today}).",
+                        )
+            done += 1
+            if progress:
+                progress(done, total, sym)
     return stats
 
 

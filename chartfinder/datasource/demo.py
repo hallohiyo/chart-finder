@@ -65,6 +65,17 @@ class DemoSource(DataSource):
         return generate_profiles(symbols)
 
 
+def _seed(symbol: str) -> int:
+    """종목코드를 난수 시드로. hash() 는 실행마다 솔트가 바뀌어 쓸 수 없다.
+
+    파이썬은 프로세스마다 문자열 해시를 다르게 매기므로, hash() 로 시드를 만들면
+    같은 종목이 실행할 때마다 다른 데이터가 되어 시험 결과가 들쭉날쭉해진다.
+    """
+    import zlib
+
+    return zlib.crc32(symbol.encode())
+
+
 def generate(symbol: str, start: date, end: date) -> pd.DataFrame:
     """종목코드를 시드로 한 결정적 랜덤워크 일봉."""
     index = pd.bdate_range(start, end)
@@ -72,7 +83,7 @@ def generate(symbol: str, start: date, end: date) -> pd.DataFrame:
     if n < 2:
         raise ValueError("기간이 너무 짧습니다.")
 
-    seed = abs(hash(symbol)) % (2**32)
+    seed = _seed(symbol)
     rng = np.random.default_rng(seed)
     _, drift, vol = _PROFILES[seed % len(_PROFILES)]
 
@@ -112,7 +123,7 @@ def generate_fundamentals(symbol: str, years: int = 5) -> pd.DataFrame:
     """종목코드를 시드로 한 합성 재무제표. 성장·정체·역성장이 섞이게 만든다."""
     from ..fundamentals import normalize
 
-    seed = abs(hash(symbol)) % (2**32)
+    seed = _seed(symbol)
     rng = np.random.default_rng(seed + 7)
     growth = rng.uniform(-0.15, 0.35)  # 연평균 매출 성장률
     margin = rng.uniform(-0.05, 0.25)  # 영업이익률
@@ -143,13 +154,9 @@ def generate_fundamentals(symbol: str, years: int = 5) -> pd.DataFrame:
 
 def generate_profiles(symbols: list[str]) -> pd.DataFrame:
     """합성 종목 정보. 실제 출처가 없어도 종목정보 조건을 시험할 수 있게."""
-    import zlib
-
     rows = {}
     for symbol in symbols:
-        # hash() 는 실행마다 솔트가 바뀌어 같은 종목도 다른 값이 나온다.
-        # 데모 데이터는 재현돼야 하므로 안정적인 해시를 쓴다.
-        rng = np.random.default_rng(zlib.crc32(symbol.encode()) + 13)
+        rng = np.random.default_rng(_seed(symbol) + 13)
         shares = float(rng.integers(3_000_000, 500_000_000))
         major = float(rng.uniform(5.0, 75.0))
         rows[symbol] = {

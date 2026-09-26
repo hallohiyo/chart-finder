@@ -121,6 +121,8 @@ def update_cache(
     import time
 
     started = time.monotonic()
+    from .datasource import get_source
+
     universe = _resolve_universe(market, universe)
     tickers = cache.get_tickers(market, universe, refresh=force)
     symbols = [t.symbol for t in tickers][:limit] if limit else [t.symbol for t in tickers]
@@ -144,10 +146,11 @@ def update_cache(
 
     elapsed = time.monotonic() - started
     handled = stats["updated"] + stats["failed"]
+    effective = getattr(get_source(market), "max_workers", 1)
     rate = f" · {handled / elapsed:.1f}종목/초" if elapsed > 0 and handled else ""
     summary = (
         f"[green]완료[/] 갱신 {stats['updated']} · 최신 {stats['skipped']} · "
-        f"실패 {stats['failed']} [dim]({elapsed:.0f}초{rate})[/]"
+        f"실패 {stats['failed']} [dim]({elapsed:.0f}초{rate} · 동시 {effective}개)[/]"
     )
     if stats.get("backfilled"):
         summary += f" · 과거 소급 {stats['backfilled']}"
@@ -165,15 +168,17 @@ def update_cache(
             console=console, redirect_stdout=False, redirect_stderr=False,
         ) as bar:
             task = bar.add_task("재무 수집", total=max(len(symbols), 1))
+            fund_started = time.monotonic()
             fund_stats = cache.update_fundamentals(
-                market, universe, symbols=symbols, force=force,
+                market, universe, symbols=symbols, force=force, workers=workers,
                 progress=lambda done, total, sym: bar.update(
                     task, completed=done, total=max(total, 1), description=f"재무 수집 {sym}"
                 ),
             )
+        fund_elapsed = time.monotonic() - fund_started
         fund_summary = (
             f"[green]재무[/] 갱신 {fund_stats['updated']} · 최신 {fund_stats['skipped']} "
-            f"· 실패 {fund_stats['failed']}"
+            f"· 실패 {fund_stats['failed']} [dim]({fund_elapsed:.0f}초)[/]"
         )
         if fund_stats.get("source"):
             fund_summary += f" [dim]({fund_stats['source']})[/]"
@@ -182,7 +187,8 @@ def update_cache(
             console.print(f"[yellow]재무 수집 오류:[/] {fund_stats['error']}")
 
     if profiles:
-        with console.status("종목 정보 수집 중 (시장 단위 요청이라 종목 수와 무관)"):
+        prof_started = time.monotonic()
+        with console.status("종목 정보 수집 중"):
             prof_stats = cache.update_profiles(
                 market, universe, symbols=symbols, force=force
             )
@@ -192,6 +198,7 @@ def update_cache(
             console.print(
                 f"[green]종목 정보[/] {prof_stats['updated']}종목"
                 + (f" · 최신 {prof_stats['skipped']}" if prof_stats.get("skipped") else "")
+                + f" [dim]({time.monotonic() - prof_started:.0f}초)[/]"
             )
             # 어떤 항목이 몇 종목 채워졌는지 보여준다. 0이면 그 조건은 죽는다.
             filled = prof_stats.get("filled") or {}
@@ -203,7 +210,6 @@ def update_cache(
                     mark = "[red]" if count == 0 else "[green]"
                     table.add_row(_PROFILE_LABELS.get(field, field), f"{mark}{count}[/]")
                 console.print(table)
-            from .datasource import get_source
 
             source = get_source(market)
             for name, note in (getattr(source, "profile_notes", {}) or {}).items():
@@ -258,6 +264,10 @@ def speedtest(
     symbols: int = typer.Option(12, "--symbols", "-s", help="시험에 쓸 종목 수"),
     workers: str = typer.Option("1,4,8,16", "--workers", "-w", help="시험할 동시 요청 수"),
     days: int = typer.Option(120, "--days", help="받아볼 기간(일)"),
+    what: str = typer.Option(
+        "prices", "--what",
+        help="무엇을 잴지: prices(시세) / flows(수급) / fundamentals(재무)",
+    ),
 ) -> None:
     """동시 요청 수를 바꿔가며 실제 수집 속도를 잰다.
 
@@ -281,9 +291,19 @@ def speedtest(
     counts = [int(w) for w in workers.split(",") if w.strip().isdigit()]
     original = source.max_workers
 
+    kinds = {
+        "prices": ("시세", lambda sym: source.fetch_ohlcv(sym, start, end)),
+        "flows": ("수급", lambda sym: source.fetch_flows(sym, start, end)),
+        "fundamentals": ("재무", lambda sym: source.fetch_fundamentals(sym)),
+    }
+    if what not in kinds:
+        console.print(f"[red]--what 은 {list(kinds)} 중 하나여야 합니다.[/]")
+        raise typer.Exit(code=1)
+    label, fetch_one = kinds[what]
+
     console.print(
-        f"[bold]{market.upper()}[/] {symbols}종목 × {days}일치를 동시 요청 수를 바꿔가며 받습니다. "
-        "[dim]캐시에 저장하지 않습니다.[/]\n"
+        f"[bold]{market.upper()}[/] {label} · {symbols}종목 × {days}일치를 동시 요청 수를 "
+        "바꿔가며 받습니다. [dim]캐시에 저장하지 않습니다.[/]\n"
     )
 
     table = Table()
@@ -299,8 +319,19 @@ def speedtest(
             tickers = tickers[symbols:] + tickers[:symbols]
 
             begin = time.monotonic()
-            fetched = source.fetch_many(picked, start, end)
+            if what == "prices":
+                outcomes = source.fetch_many(picked, start, end)
+            else:
+                # 수급·재무는 종목당 1회 요청이다. update 가 쓰는 것과 같은 경로로 잰다.
+                outcomes = {
+                    sym: value
+                    for sym, value in cache._parallel(fetch_one, picked, count).items()
+                    if not isinstance(value, Exception)
+                    and value is not None
+                    and not getattr(value, "empty", False)
+                }
             elapsed = time.monotonic() - begin
+            fetched = outcomes
 
             rate = len(picked) / elapsed if elapsed else 0
             full = len(cache.get_tickers(market, universe)) / rate / 60 if rate else 0

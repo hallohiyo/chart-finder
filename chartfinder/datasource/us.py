@@ -25,6 +25,8 @@ class UsSource(DataSource):
 
     #: yfinance 배치 다운로드 한 묶음 크기
     batch_size = 100
+    #: 시세는 위 배치로 받지만, 재무는 종목당 1회 요청이라 동시에 보내야 한다
+    max_workers = 8
 
     def __init__(self) -> None:
         import FinanceDataReader as fdr
