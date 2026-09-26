@@ -661,6 +661,19 @@ def up_candle_volume(ctx: Ctx, period: int, ratio: float, min_gain: float) -> fl
 # 외국인·기관 순매수는 `update --flows` 로 받은 캐시에서만 값이 나온다 (한국 시장 전용).
 
 
+def _net_sum(ctx: Ctx, who: str, days: int) -> float | None:
+    """대상(외국인/기관/둘 다)의 N일 누적 순매수 주식 수. 수급이 없으면 None."""
+    series = []
+    if who in ("foreign", "both"):
+        series.append(ctx.flow("foreign_net"))
+    if who in ("inst", "both"):
+        series.append(ctx.flow("inst_net"))
+    available = [s for s in series if s is not None]
+    if not available:
+        return None
+    return sum(float(s.dropna().tail(days).sum()) for s in available)
+
+
 def _net_buy_days(series, days: int) -> float:
     """최근 days일 중 순매수였던 날의 비율.
 
@@ -1029,23 +1042,87 @@ def foreign_holding(ctx: Ctx, min_pct: float) -> float:
 
 
 @condition(
-    "inst_accumulation", "기관 누적 매수 비중", PROFILE,
+    "net_buy_ratio", "수급 누적 매집 비중", FLOW,
     params=(
-        _p("min_pct", "최소 (%)", "float", default=0.5, min=0.0, max=50.0, step=0.1),
-        _p("days", "누적 일수", default=60, min=5, max=250),
+        _p("who", "대상", "choice", default="both", choices=("foreign", "inst", "both")),
+        _p("days", "누적 일수", default=20, min=3, max=250),
+        _p("min_pct", "최소 비중 (%)", "float", default=0.5, min=0.0, max=50.0, step=0.1),
     ),
-    description="최근 N일 기관 순매수를 상장주식수로 나눈 값. "
-                "기관 보유비중은 어디서도 공개하지 않아, 실제로 받을 수 있는 "
-                "순매수 누적으로 본다.",
+    description="N일 누적 순매수를 상장주식수로 나눈 값. 절대 주식 수는 종목 크기에 "
+                "따라 의미가 달라지므로(10만주는 소형주엔 대량, 대형주엔 미미) "
+                "비중으로 본다. 상장주식수가 필요하다 (--profiles).",
     min_bars=10,
 )
-def inst_accumulation(ctx: Ctx, min_pct: float, days: int) -> float:
+def net_buy_ratio(ctx: Ctx, who: str, days: int, min_pct: float) -> float:
     shares = ctx.profile("shares")
-    flow = ctx.flow("inst_net")
-    if not shares or shares <= 0 or flow is None:
+    net = _net_sum(ctx, who, days)
+    if not shares or shares <= 0 or net is None:
         return 0.0
-    net = float(flow.tail(days).sum())
-    return soft_gt(net / shares * 100.0, min_pct, tol=max(min_pct, 0.2))
+    return soft_gt(net / shares * 100.0, min_pct, tol=max(min_pct * 0.5, 0.1))
+
+
+@condition(
+    "net_buy_value", "수급 누적 순매수 금액", FLOW,
+    params=(
+        _p("who", "대상", "choice", default="both", choices=("foreign", "inst", "both")),
+        _p("days", "누적 일수", default=20, min=3, max=250),
+        _p("min_value", "최소 금액 (억원)", "float",
+           default=100.0, min=1.0, max=100000.0, step=10.0),
+    ),
+    description="N일 누적 순매수 주식 수에 종가를 곱한 금액. 주식 수보다 실제로 "
+                "얼마의 돈이 들어왔는지를 본다.",
+    min_bars=10,
+)
+def net_buy_value(ctx: Ctx, who: str, days: int, min_value: float) -> float:
+    net = _net_sum(ctx, who, days)
+    price = ctx.last(ctx.close)
+    if net is None or price is None or price <= 0:
+        return 0.0
+    return soft_gt(net * price / 1e8, min_value, tol=max(min_value * 0.4, 10.0))
+
+
+@condition(
+    "both_net_buy", "외국인·기관 쌍끌이", FLOW,
+    params=(_p("days", "확인 일수", default=5, min=1, max=60),),
+    description="최근 N일 중 외국인과 기관이 '같은 날 함께' 순매수한 날의 비율. "
+                "한쪽이 사고 다른 쪽이 파는 것과 둘이 같이 담는 것은 다르다.",
+    min_bars=10,
+)
+def both_net_buy(ctx: Ctx, days: int) -> float:
+    foreign, inst = ctx.flow("foreign_net"), ctx.flow("inst_net")
+    if foreign is None or inst is None:
+        return 0.0
+    frame = pd.concat([foreign, inst], axis=1).dropna().tail(days)
+    if len(frame) < days:
+        return 0.0
+    both = (frame.iloc[:, 0] > 0) & (frame.iloc[:, 1] > 0)
+    return float(both.sum()) / days
+
+
+@condition(
+    "net_buy_accelerating", "수급 매집 가속", FLOW,
+    params=(
+        _p("who", "대상", "choice", default="both", choices=("foreign", "inst", "both")),
+        _p("short", "최근 일수", default=5, min=2, max=60),
+        _p("long", "비교 일수", default=20, min=5, max=250),
+        _p("mult", "최소 배수", "float", default=1.5, min=1.0, max=20.0, step=0.1),
+    ),
+    description="최근 며칠의 하루평균 순매수가 그 전 기간 평균의 N배 이상. "
+                "꾸준히 담던 것에서 담는 속도가 붙었는지를 본다.",
+    min_bars=30,
+)
+def net_buy_accelerating(ctx: Ctx, who: str, short: int, long: int, mult: float) -> float:
+    if short >= long:
+        return 0.0
+    recent = _net_sum(ctx, who, short)
+    baseline = _net_sum(ctx, who, long)
+    if recent is None or baseline is None or baseline <= 0:
+        return 0.0
+    # 하루평균끼리 비교한다 (기간이 다르므로 합계로 비교하면 안 된다)
+    ratio = (recent / short) / (baseline / long)
+    # 허용폭은 배수 자체가 아니라 '1배를 넘어 요구한 증가분' 에 비례해야 한다.
+    # mult*0.4 로 잡으면 가속이 전혀 없는 1.0배 종목이 0.21점을 받는다.
+    return soft_gt(ratio, mult, tol=max((mult - 1.0) * 0.5, 0.05))
 
 
 @condition(

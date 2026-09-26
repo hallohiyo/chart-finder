@@ -85,7 +85,6 @@ def test_turnover_surge_needs_a_jump_over_the_average():
         ("low_short_balance", {}),
         ("low_dilution", {}),
         ("share_turnover", {}),
-        ("inst_accumulation", {}),
     ],
 )
 def test_profile_conditions_score_zero_without_data(key, params):
@@ -123,10 +122,10 @@ def test_low_dilution_treats_no_cb_as_perfect():
     assert _score("low_dilution", {"dilution_pct": 40.0}) < 0.05
 
 
-def test_inst_accumulation_needs_shares_and_flows():
+def test_net_buy_ratio_needs_shares_and_flows():
     # 수급 컬럼은 있지만 상장주식수가 없으면 비율을 못 낸다
-    assert _score("inst_accumulation", {}) == 0.0
-    assert _score("inst_accumulation", {"shares": 1e6}, min_pct=0.1, days=60) > 0.0
+    assert _score("net_buy_ratio", {}) == 0.0
+    assert _score("net_buy_ratio", {"shares": 1e6}, min_pct=0.1, days=60) > 0.0
 
 
 # --------------------------------------------------------------------- 캐시
