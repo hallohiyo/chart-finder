@@ -316,14 +316,54 @@ class ReferenceNotFound(LookupError):
     """
 
 
+def parse_band(text: str) -> tuple[float, float]:
+    """`--band` 값을 (하한, 상한) 으로 푼다.
+
+    "80"      → 기준의 80% 이상, 상한 없음 (기준보다 좋은 종목도 포함)
+    "80,120"  → 80~120%
+    ",90"     → 90% 이하
+    상한을 100 으로 두면 기준보다 센 종목이 빠진다. 기본은 상한 없음이다.
+    """
+    text = str(text).strip()
+    if not text:
+        return 0.0, float("inf")
+    parts = [p.strip() for p in text.split(",")]
+    if len(parts) > 2:
+        raise ValueError(f"--band 는 '하한' 또는 '하한,상한' 형식입니다: {text}")
+
+    def number(value: str, default: float) -> float:
+        if not value:
+            return default
+        try:
+            return float(value)
+        except ValueError:
+            # 파이썬 기본 메시지("could not convert string to float")는
+            # 무엇을 어떻게 적어야 하는지 알려주지 않는다
+            raise ValueError(
+                f"--band 에 숫자가 아닌 값이 있습니다: {value!r} "
+                f"(예: 80 또는 80,120)"
+            ) from None
+
+    low = number(parts[0], 0.0)
+    high = number(parts[1], float("inf")) if len(parts) == 2 else float("inf")
+    if low > high:
+        raise ValueError(f"--band 의 하한이 상한보다 큽니다: {text}")
+    return low, high
+
+
 def like_reference(
-    result: pd.DataFrame, reference: str, low: float = 80.0, high: float = 100.0
+    result: pd.DataFrame,
+    reference: str,
+    low: float = 80.0,
+    high: float = float("inf"),
 ) -> tuple[pd.DataFrame, float]:
     """기준 종목 점수의 low~high% 구간에 있는 종목만 남긴다.
 
-    "A 가 10점이면 8~9점짜리" 처럼 찾을 때 쓴다. 절대 점수로 자르면 조건
+    "A 가 10점이면 8점 이상짜리" 처럼 찾을 때 쓴다. 절대 점수로 자르면 조건
     구성에 따라 기준이 달라지는데, 기준 종목을 잡으면 그 종목이 10점인
     눈금에서 상대적으로 고를 수 있다.
+
+    상한은 기본이 없다 — 기준보다 좋은 종목을 빼야 할 이유가 없다.
 
     (걸러낸 결과, 기준 종목 점수) 를 돌려준다. 기준 종목이 결과에 없으면
     ReferenceNotFound 를 낸다 — 조용히 전체를 돌려주면 걸러진 줄 알게 된다.

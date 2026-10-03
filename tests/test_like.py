@@ -41,15 +41,20 @@ def test_the_reference_itself_is_a_hundred_percent():
     assert base == pytest.approx(0.589)
 
 
-def test_excludes_stocks_stronger_than_the_band_allows():
-    """상한을 100 으로 두면 기준보다 센 종목은 빠진다."""
+def test_stocks_better_than_the_reference_are_kept_by_default():
+    """기준보다 좋은 종목을 빼야 할 이유가 없다 — 상한은 기본이 없다."""
+    result = _result([("A", "가", 0.50), ("B", "나", 0.90)])
+
+    kept, _ = like_reference(result, "A")       # 기본: 80% 이상
+    assert set(kept["symbol"]) == {"A", "B"}
+    assert kept.loc[kept["symbol"] == "B", "ref_pct"].iloc[0] == 180.0
+
+
+def test_an_explicit_upper_bound_still_cuts_the_strong_ones():
+    """구간을 좁히고 싶으면 상한을 직접 준다."""
     result = _result([("A", "가", 0.50), ("B", "나", 0.90)])
     kept, _ = like_reference(result, "A", 80.0, 100.0)
     assert list(kept["symbol"]) == ["A"]
-
-    # 상한을 올리면 들어온다
-    kept, _ = like_reference(result, "A", 80.0, 200.0)
-    assert set(kept["symbol"]) == {"A", "B"}
 
 
 def test_the_reference_can_be_given_by_name():
@@ -150,3 +155,54 @@ def test_relative_strength_is_in_every_preset_but_the_delisting_check():
         if path.name == "delisting_risk.yaml":
             continue
         assert "relative_strength" in keys, path.name
+
+
+# ------------------------------------------------------------- band 해석
+
+
+def test_band_with_one_number_has_no_upper_limit():
+    from chartfinder.screener import parse_band
+
+    assert parse_band("80") == (80.0, float("inf"))
+
+
+def test_band_accepts_a_range_and_one_sided_forms():
+    from chartfinder.screener import parse_band
+
+    assert parse_band("80,120") == (80.0, 120.0)
+    assert parse_band(",90") == (0.0, 90.0)
+    assert parse_band("70,") == (70.0, float("inf"))
+
+
+def test_band_rejects_a_reversed_range():
+    from chartfinder.screener import parse_band
+
+    with pytest.raises(ValueError) as caught:
+        parse_band("100,80")
+    assert "하한" in str(caught.value)
+
+
+def test_band_rejects_letters():
+    from chartfinder.screener import parse_band
+
+    with pytest.raises(ValueError):
+        parse_band("a,b")
+
+
+def test_cli_default_band_keeps_better_stocks(tmp_path, monkeypatch):
+    """--band 를 안 주면 기준보다 좋은 종목도 나와야 한다."""
+    monkeypatch.setenv("CHARTFINDER_HOME", str(tmp_path))
+    from typer.testing import CliRunner
+
+    from chartfinder.cli import app
+
+    runner = CliRunner()
+    runner.invoke(app, ["update", "-m", "demo", "--limit", "30"])
+    out = runner.invoke(
+        app,
+        ["scan", "-m", "demo", "-c", "above_ma", "-c", "volume_surge",
+         "--like", "DEMO000", "--top", "10"],
+    )
+    assert out.exit_code == 0, out.output
+    assert "이상" in out.output
+    assert "기준보다 좋은 종목 포함" in out.output

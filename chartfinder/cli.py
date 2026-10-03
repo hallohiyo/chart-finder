@@ -670,8 +670,9 @@ def scan(
         help="기준 종목코드. 그 종목 점수를 100으로 보고 --band 구간에 드는 종목만 남긴다",
     ),
     band: str = typer.Option(
-        "80,100", "--band",
-        help="--like 와 함께 쓸 구간 (기준 대비 %). 예: 80,95",
+        "80", "--band",
+        help="--like 와 함께 쓸 구간 (기준 대비 %). "
+             "'80' 이면 80% 이상(기준보다 좋은 종목 포함), '80,95' 면 그 구간만",
     ),
     csv: Optional[Path] = typer.Option(
         None, "--csv", "--out",
@@ -709,23 +710,30 @@ def scan(
         )
 
     if like and not result.empty:
-        from .screener import ReferenceNotFound, like_reference
+        from .screener import ReferenceNotFound, like_reference, parse_band
 
         try:
-            low, high = (float(x) for x in band.split(","))
-        except ValueError:
-            console.print(f"[red]--band 는 '낮은값,높은값' 형식입니다: {band}[/]")
+            low, high = parse_band(band)
+        except ValueError as exc:
+            console.print(f"[red]{exc}[/]")
             raise typer.Exit(code=1) from None
         try:
             result, base = like_reference(result, like, low, high)
         except ReferenceNotFound as exc:
             console.print(f"[red]{exc}[/]")
             raise typer.Exit(code=1) from None
-        console.print(
-            f"[bold]기준 종목[/] {like} 점수 {base:.3f} → "
-            f"그 {low:g}~{high:g}% 구간({base * low / 100:.3f}~{base * high / 100:.3f})에 "
-            f"드는 종목 {len(result)}개"
-        )
+        if high == float("inf"):
+            console.print(
+                f"[bold]기준 종목[/] {like} 점수 {base:.3f} → "
+                f"그 {low:g}% 이상({base * low / 100:.3f} 이상)인 종목 {len(result)}개 "
+                f"[dim](기준보다 좋은 종목 포함)[/]"
+            )
+        else:
+            console.print(
+                f"[bold]기준 종목[/] {like} 점수 {base:.3f} → "
+                f"그 {low:g}~{high:g}% 구간"
+                f"({base * low / 100:.3f}~{base * high / 100:.3f})인 종목 {len(result)}개"
+            )
         if top:
             result = result.head(top)
 
