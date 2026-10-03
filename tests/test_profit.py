@@ -43,8 +43,8 @@ def test_cagr_separates_fast_growth_from_barely_growing():
     assert _score("operating_income_growth", fast, years=3, min_growth=0.0) == 1.0
     assert _score("operating_income_growth", crawl, years=3, min_growth=0.0) == 1.0
     # 새 조건은 구분한다
-    assert _score("operating_income_cagr", fast, years=3, min_cagr=20.0) == 1.0
-    assert _score("operating_income_cagr", crawl, years=3, min_cagr=20.0) < 0.05
+    assert _score("growth_cagr", fast, years=3, min_cagr=20.0) == 1.0
+    assert _score("growth_cagr", crawl, years=3, min_cagr=20.0) < 0.05
 
 
 def test_cagr_refuses_to_measure_growth_from_a_loss():
@@ -55,13 +55,13 @@ def test_cagr_refuses_to_measure_growth_from_a_loss():
     turnaround = _company(operating_income=[-50.0, 50.0, 200.0])
     worsening = _company(operating_income=[-50.0, -100.0, -200.0])
 
-    assert _score("operating_income_cagr", turnaround, years=3) == 0.0
-    assert _score("operating_income_cagr", worsening, years=3) == 0.0
+    assert _score("growth_cagr", turnaround, years=3) == 0.0
+    assert _score("growth_cagr", worsening, years=3) == 0.0
 
 
 def test_cagr_is_zero_when_the_latest_year_is_a_loss():
     fell_into_loss = _company(operating_income=[100.0, 50.0, -20.0])
-    assert _score("operating_income_cagr", fell_into_loss, years=3) == 0.0
+    assert _score("growth_cagr", fell_into_loss, years=3) == 0.0
 
 
 # ------------------------------------------------------------- 급증
@@ -70,18 +70,18 @@ def test_cagr_is_zero_when_the_latest_year_is_a_loss():
 def test_surge_catches_a_turnaround_from_loss_to_profit():
     """적자 탈출은 성장률로 표현하기 어렵다 — 분모에 절대값을 쓴다."""
     turnaround = _company(operating_income=[-100.0, 50.0])   # -100 → +50 = +150%
-    assert _score("operating_income_surge", turnaround, min_growth=50.0) == 1.0
+    assert _score("growth_surge", turnaround, min_growth=50.0) == 1.0
 
 
 def test_surge_rejects_a_halving():
     halved = _company(operating_income=[100.0, 50.0])
-    assert _score("operating_income_surge", halved, min_growth=50.0) < 0.01
+    assert _score("growth_surge", halved, min_growth=50.0) < 0.01
 
 
 def test_surge_looks_only_at_the_latest_year():
     """3년 전 급증은 지금의 가속이 아니다."""
     old_surge = _company(operating_income=[100.0, 300.0, 310.0])
-    assert _score("operating_income_surge", old_surge, min_growth=50.0) < 0.05
+    assert _score("growth_surge", old_surge, min_growth=50.0) < 0.05
 
 
 # ------------------------------------------------------------- 마진 개선
@@ -108,7 +108,7 @@ def test_partial_improvement_gives_a_partial_score():
 
 
 @pytest.mark.parametrize(
-    "key", ["operating_income_cagr", "operating_income_surge", "operating_margin_improving"]
+    "key", ["growth_cagr", "growth_surge", "operating_margin_improving"]
 )
 def test_no_fundamentals_means_zero(key):
     bars = pd.DataFrame(
@@ -118,10 +118,10 @@ def test_no_fundamentals_means_zero(key):
     assert _score(key, Ctx(bars, None)) == 0.0
 
 
-def test_a_single_year_is_not_enough_to_measure_growth(key="operating_income_cagr"):
+def test_a_single_year_is_not_enough_to_measure_growth(key="growth_cagr"):
     one_year = _company(operating_income=[100.0])
     assert _score(key, one_year) == 0.0
-    assert _score("operating_income_surge", one_year) == 0.0
+    assert _score("growth_surge", one_year) == 0.0
 
 
 # ------------------------------------------------------------- 프리셋
@@ -132,7 +132,7 @@ def test_profit_growth_preset_is_complete():
 
     preset = next(p for _, p in presets_mod.load_all() if "영업이익 급성장" in p.name)
     keys = {spec.key for spec in preset.conditions}
-    assert {"operating_income_cagr", "operating_income_surge",
+    assert {"growth_cagr", "growth_surge",
             "operating_margin", "operating_margin_improving"} <= keys
     # 비용만 줄여 만든 이익을 걸러내려면 매출 증가도 봐야 한다
     assert "revenue_growth" in keys

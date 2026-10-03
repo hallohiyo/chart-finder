@@ -351,12 +351,14 @@ class App(tk.Tk):
             self.status.set("조건에 맞는 종목이 없습니다. 데이터를 먼저 받으셨나요?")
             return
 
-        for i, row in enumerate(result.itertuples(index=False), start=1):
+        # 조건을 두 번 쓰면 컬럼 이름에 '#' 이 들어가 itertuples 가 이름을 바꾼다
+        for i, row in enumerate(result.to_dict("records"), start=1):
             values = [
-                i, row.symbol, row.name, f"{row.score:.3f}",
-                f"{row.matched}/{len(specs)}", f"{row.close:,.2f}", f"{row.chg_pct:+.2f}",
+                i, row["symbol"], row["name"], f"{row['score']:.3f}",
+                f"{row['matched']}/{len(specs)}", f"{row['close']:,.2f}",
+                f"{row['chg_pct']:+.2f}",
             ]
-            values += [f"{getattr(row, col):.2f}" for col in score_cols]
+            values += [f"{row[col]:.2f}" for col in score_cols]
             self.tree.insert("", "end", values=values)
         self.progress["value"] = self.progress["maximum"]
         self.status.set(f"{len(result)}종목 · 행을 더블클릭하면 차트가 열립니다")

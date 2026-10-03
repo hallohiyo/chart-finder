@@ -1336,47 +1336,50 @@ def gap_over_ma(ctx: Ctx, period: int, min_gap: float, within: int) -> float:
 # 여기 조건들은 "얼마나" 늘었는지와 "수익성이 나아지는지" 를 본다.
 
 
+#: 성장률을 볼 수 있는 재무 항목
+GROWTH_ITEMS = ("revenue", "operating_income", "net_income")
+ITEM_LABELS = {"revenue": "매출액", "operating_income": "영업이익", "net_income": "순이익"}
+
+
 @condition(
-    "operating_income_cagr", "영업이익 성장률", FUNDAMENTAL,
+    "growth_cagr", "연평균 성장률", FUNDAMENTAL,
     params=(
+        _p("item", "항목", "choice", default="operating_income", choices=GROWTH_ITEMS),
         _p("years", "확인 연수", default=3, min=2, max=10),
         _p("min_cagr", "최소 연평균 성장률 (%)", "float",
            default=20.0, min=-50.0, max=300.0, step=5.0),
     ),
-    description="영업이익의 연평균 성장률(CAGR). 구간마다 늘었는지만 보는 "
-                "'영업이익 증가' 와 달리 성장 속도를 본다. "
-                "시작 연도가 적자면 성장률을 낼 수 없어 0점이다 "
-                "(적자 탈출은 '영업이익 급증' 으로 본다).",
+    description="매출액·영업이익·순이익의 연평균 성장률(CAGR). 구간마다 늘었는지만 "
+                "보는 '증가' 조건과 달리 성장 속도를 본다. 시작 연도가 적자면 "
+                "성장률을 낼 수 없어 0점이다 (적자 탈출은 '급증' 으로 본다).",
     min_bars=1,
 )
-def operating_income_cagr(ctx: Ctx, years: int, min_cagr: float) -> float:
-    series = ctx.fundamental("operating_income", years)
+def growth_cagr(ctx: Ctx, item: str, years: int, min_cagr: float) -> float:
+    series = ctx.fundamental(item, years)
     if series is None or len(series) < 2:
         return 0.0
     first, last = float(series.iloc[0]), float(series.iloc[-1])
     # 적자에서 출발하면 복합 성장률이 정의되지 않는다. 음수로 나누면
     # 부호가 뒤집혀 적자 확대가 고성장처럼 보인다.
-    if first <= 0:
+    if first <= 0 or last <= 0:
         return 0.0
-    periods = len(series) - 1
-    if last <= 0:
-        return 0.0
-    cagr = ((last / first) ** (1.0 / periods) - 1.0) * 100.0
+    cagr = ((last / first) ** (1.0 / (len(series) - 1)) - 1.0) * 100.0
     return soft_gt(cagr, min_cagr, tol=max(abs(min_cagr) * 0.5, 5.0))
 
 
 @condition(
-    "operating_income_surge", "영업이익 급증", FUNDAMENTAL,
+    "growth_surge", "전년 대비 급증", FUNDAMENTAL,
     params=(
+        _p("item", "항목", "choice", default="operating_income", choices=GROWTH_ITEMS),
         _p("min_growth", "전년 대비 최소 증가율 (%)", "float",
            default=50.0, min=-50.0, max=500.0, step=10.0),
     ),
-    description="가장 최근 연도 영업이익이 전년 대비 크게 늘었는지. "
-                "적자에서 흑자로 돌아선 경우도 잡는다.",
+    description="가장 최근 연도가 전년 대비 크게 늘었는지. 적자에서 흑자로 "
+                "돌아선 경우도 잡는다.",
     min_bars=1,
 )
-def operating_income_surge(ctx: Ctx, min_growth: float) -> float:
-    series = ctx.fundamental("operating_income", 2)
+def growth_surge(ctx: Ctx, item: str, min_growth: float) -> float:
+    series = ctx.fundamental(item, 2)
     if series is None or len(series) < 2:
         return 0.0
     before, after = float(series.iloc[0]), float(series.iloc[-1])

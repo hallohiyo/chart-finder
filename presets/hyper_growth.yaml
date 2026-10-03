@@ -1,0 +1,106 @@
+name: 매출·영업이익 폭발 — 둘 다 아주 잘 나오는 회사
+market: kr
+universe: all
+description: 매출 CAGR 25%↑ · 영업이익 CAGR 40%↑ · 영업이익률 20%↑ · 둘 다 전년 대비 급증. 기준이 매우 높다.
+requires: [fundamentals, profiles, flows]
+order: 4
+conditions:
+  # ── 매출 ─────────────────────────────────────────────────────
+  # 영업이익만 좋은 회사는 비용을 줄였을 수 있다. 매출이 같이 커야
+  # 사업이 커지는 것이다.
+
+  # 1. 매출 연평균 성장률 25% 이상
+  - key: growth_cagr
+    weight: 4.0
+    params: {item: revenue, years: 3, min_cagr: 25.0}
+
+  # 2. 매출이 전년 대비 30% 이상 늘었는지 — 지금도 커지는 중인지
+  - key: growth_surge
+    weight: 3.0
+    params: {item: revenue, min_growth: 30.0}
+
+  # 3. 매출이 해마다 빠짐없이 늘었는지 (한 해라도 꺾이면 감점)
+  - key: revenue_growth
+    weight: 2.0
+    params: {years: 3, min_growth: 10.0}
+
+  # ── 영업이익 ─────────────────────────────────────────────────
+  # 매출보다 빠르게 늘어야 한다. 그래야 이익률이 올라간다.
+
+  # 4. 영업이익 연평균 성장률 40% 이상 — 매출(25%)보다 높게 잡는다
+  - key: growth_cagr
+    weight: 4.5
+    params: {item: operating_income, years: 3, min_cagr: 40.0}
+
+  # 5. 영업이익이 전년 대비 50% 이상 급증 (적자 탈출도 잡는다)
+  - key: growth_surge
+    weight: 3.5
+    params: {item: operating_income, min_growth: 50.0}
+
+  # 6. 영업이익도 해마다 빠짐없이
+  - key: operating_income_growth
+    weight: 2.0
+    params: {years: 3, min_growth: 10.0}
+
+  # ── 수익성 ───────────────────────────────────────────────────
+
+  # 7. 영업이익률 20% 이상 — 많이 팔아 조금 남기는 회사와 구분한다
+  - key: operating_margin
+    weight: 4.0
+    params: {min_margin: 20.0, years: 3}
+
+  # 8. 이익률이 해마다 올라가는지
+  - key: operating_margin_improving
+    weight: 2.5
+    params: {years: 3, min_step: 1.0}
+
+  # 9. ROE
+  - key: roe
+    weight: 2.0
+    params: {min_roe: 15.0, years: 3}
+
+  # ── 진짜인지 확인 ────────────────────────────────────────────
+  # 장부상 숫자만 좋은 회사를 걸러낸다.
+
+  # 10. 이익이 현금으로 들어오는지
+  - key: positive_cash_flow
+    weight: 3.0
+    params: {years: 3}
+
+  # 11. 빚으로 키운 게 아닌지
+  - key: debt_ratio
+    weight: 2.0
+    params: {max_ratio: 120.0, years: 3}
+
+  # 12. 자본잠식이 아닌지
+  - key: no_capital_impairment
+    weight: 2.0
+    params: {min_reserve: 100.0, years: 1}
+
+  # ── 거를 것 ──────────────────────────────────────────────────
+
+  - key: turnover_value
+    weight: 1.5
+    params: {min_value: 20.0, period: 20}
+
+  - key: low_dilution
+    weight: 1.5
+    params: {max_pct: 5.0}
+
+  # ── 지수·수급 ────────────────────────────────────────────────
+
+  - key: relative_strength
+    weight: 2.0
+    params: {period: 20, min_excess: 0.0}
+
+  - key: both_net_buy
+    weight: 2.5
+    params: {days: 5}
+
+  - key: net_buy_ratio
+    weight: 2.5
+    params: {who: both, days: 20, min_pct: 0.3}
+
+  - key: net_buy_value
+    weight: 2.0
+    params: {who: both, days: 20, min_value: 50.0}

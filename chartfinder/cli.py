@@ -14,7 +14,9 @@ import pandas as pd
 from . import cache, presets as presets_mod
 from .conditions import all_conditions, by_category, get as get_condition
 from .datasource import MARKETS, default_universe, universes
-from .screener import ConditionSpec, export_frame, screen, unscored_conditions
+from .screener import (
+    ConditionSpec, export_frame, label_of, screen, unscored_conditions,
+)
 
 #: 프리셋 폴더 (--all 이 여기를 훑는다)
 PRESET_DIR = presets_mod.default_dir()
@@ -758,17 +760,20 @@ def scan(
     table.add_column("종가", justify="right")
     table.add_column("등락%", justify="right")
     for col in score_cols:
-        table.add_column(get_condition(col[2:]).label, justify="right", style="dim")
+        table.add_column(label_of(col), justify="right", style="dim")
 
-    for i, row in enumerate(result.itertuples(index=False), start=1):
-        values = [str(i), row.symbol, row.name, f"{row.score:.3f}"]
+    # 조건을 두 번 쓰면 컬럼 이름에 '#' 이 들어간다. itertuples 는 그런 이름을
+    # 쓸 수 없는 식별자로 보고 바꿔버리므로 dict 로 읽는다.
+    for i, row in enumerate(result.to_dict("records"), start=1):
+        values = [str(i), row["symbol"], row["name"], f"{row['score']:.3f}"]
         if "ref_pct" in result.columns:
-            values.append(f"{row.ref_pct:.0f}%")
+            values.append(f"{row['ref_pct']:.0f}%")
+        change = row["chg_pct"]
         values += [
-            f"{row.matched}/{len(specs)}", f"{row.close:,.2f}",
-            f"[red]{row.chg_pct:+.2f}[/]" if row.chg_pct < 0 else f"[green]{row.chg_pct:+.2f}[/]",
+            f"{row['matched']}/{len(specs)}", f"{row['close']:,.2f}",
+            f"[red]{change:+.2f}[/]" if change < 0 else f"[green]{change:+.2f}[/]",
         ]
-        values += [f"{getattr(row, col):.2f}" for col in score_cols]
+        values += [f"{row[col]:.2f}" for col in score_cols]
         table.add_row(*values)
     console.print(table)
 
@@ -877,9 +882,9 @@ def _scan_multi(
 def _print_breakdown(result, score_cols: list[str]) -> None:
     """종목별로 어떤 조건을 충족했고 어디서 깎였는지 풀어서 보여준다."""
     console.print()
-    for i, row in enumerate(result.itertuples(index=False), start=1):
+    for i, row in enumerate(result.to_dict("records"), start=1):
         scores = sorted(
-            ((get_condition(col[2:]).label, getattr(row, col)) for col in score_cols),
+            ((label_of(col), row[col]) for col in score_cols),
             key=lambda pair: pair[1], reverse=True,
         )
         met = [label for label, value in scores if value >= 0.999]
@@ -887,8 +892,8 @@ def _print_breakdown(result, score_cols: list[str]) -> None:
         missed = [label for label, value in scores if value <= 0]
 
         console.print(
-            f"[dim]{i:>2}[/] [cyan]{row.symbol}[/] {row.name} · "
-            f"[bold green]{row.score:.3f}[/] ({row.matched}/{len(score_cols)})"
+            f"[dim]{i:>2}[/] [cyan]{row['symbol']}[/] {row['name']} · "
+            f"[bold green]{row['score']:.3f}[/] ({row['matched']}/{len(score_cols)})"
         )
         if met:
             console.print(f"     [green]충족[/] {' · '.join(met)}")

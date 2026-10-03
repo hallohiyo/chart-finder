@@ -19,7 +19,7 @@ from chartfinder.charts import candle_chart
 from chartfinder.conditions import by_category, get as get_condition
 from chartfinder.datasource import MARKETS, universes
 from chartfinder.presets import Preset
-from chartfinder.screener import ConditionSpec, export_frame, screen
+from chartfinder.screener import ConditionSpec, export_frame, label_of, screen
 
 PRESET_DIR = presets_mod.default_dir()
 
@@ -220,7 +220,7 @@ if result is not None:
         display = result.rename(
             columns={"symbol": "종목", "name": "이름", "score": "점수", "matched": "충족",
                      "close": "종가", "chg_pct": "등락%", "date": "기준일",
-                     **{c: get_condition(c[2:]).label for c in score_cols}}
+                     **{c: label_of(c) for c in score_cols}}
         )
         event = st.dataframe(
             display, use_container_width=True, hide_index=True,
@@ -228,7 +228,7 @@ if result is not None:
             column_config={
                 "점수": st.column_config.ProgressColumn("점수", min_value=0.0, max_value=1.0, format="%.3f"),
                 **{
-                    get_condition(c[2:]).label: st.column_config.NumberColumn(format="%.2f")
+                    label_of(c): st.column_config.NumberColumn(format="%.2f")
                     for c in score_cols
                 },
             },
@@ -240,7 +240,7 @@ if result is not None:
         df = cache.load(st.session_state.result_market, row["symbol"])
         if df is not None and not df.empty:
             detail = " · ".join(
-                f"{get_condition(c[2:]).label} {row[c]:.2f}" for c in score_cols
+                f"{label_of(c)} {row[c]:.2f}" for c in score_cols
             )
             st.plotly_chart(
                 candle_chart(df, f"{row['symbol']} {row['name']} — 점수 {row['score']:.3f}"),

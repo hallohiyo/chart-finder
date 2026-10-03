@@ -158,23 +158,60 @@ def _cache_key(spec: "ConditionSpec") -> tuple:
     return (spec.key, tuple(sorted(spec.params.items())))
 
 
+def label_of(column: str) -> str:
+    """점수 컬럼 이름을 사람 말로 바꾼다.
+
+    같은 조건을 두 번 쓰면 이름에 구분 꼬리가 붙는다
+    (`s_growth_cagr#revenue`). 그걸 그대로 조건 레지스트리에 넘기면
+    '알 수 없는 조건' 으로 터진다.
+    """
+    from .conditions.builtin import ITEM_LABELS
+
+    name = column[2:] if column.startswith(("s_", "p_")) else column
+    base, _, tag = name.partition("#")
+    try:
+        label = get_condition(base).label
+    except KeyError:
+        return name
+    return f"{label} ({ITEM_LABELS.get(tag, tag)})" if tag else label
+
+
+def _distinguishing_tag(spec: ConditionSpec, siblings: list[ConditionSpec]) -> str:
+    """같은 조건을 여러 번 쓸 때, 값이 서로 다른 첫 파라미터의 값.
+
+    모두 같은 파라미터로 중복된 경우에는 빈 문자열을 돌려주고 부르는 쪽이
+    번호를 붙인다.
+    """
+    for name in spec.params:
+        if len({str(other.params.get(name)) for other in siblings}) > 1:
+            value = str(spec.params[name])
+            # 컬럼 이름에 들어가므로 구분자로 쓰는 '#' 등은 뺀다
+            return "".join(ch for ch in value if ch.isalnum() or ch in "_-.")
+    return ""
+
+
 def score_labels(specs: Iterable[ConditionSpec]) -> list[str]:
     """조건별 점수 컬럼 이름. 같은 조건이 두 번 나오면 구분해서 붙인다.
 
-    `gap_over_ma` 를 20일선·60일선으로 두 번 쓰는 것은 정당한 사용인데,
+    `growth_cagr` 를 매출과 영업이익에 각각 쓰는 것은 정당한 사용인데,
     이름을 키만으로 지으면 두 점수가 한 칸에 겹쳐 하나가 사라진다.
+
+    구분은 값이 서로 다른 파라미터로 한다 — `growth_cagr#revenue` 처럼 쓰면
+    `#1`, `#2` 보다 무엇인지 바로 읽힌다.
     """
     specs = list(specs)
     counts: dict[str, int] = {}
     for spec in specs:
         counts[spec.key] = counts.get(spec.key, 0) + 1
+
     out, used = [], {}
     for spec in specs:
         if counts[spec.key] == 1:
             out.append(spec.key)
             continue
         used[spec.key] = used.get(spec.key, 0) + 1
-        out.append(f"{spec.key}#{used[spec.key]}")
+        tag = _distinguishing_tag(spec, [s for s in specs if s.key == spec.key])
+        out.append(f"{spec.key}#{tag or used[spec.key]}")
     return out
 
 

@@ -133,7 +133,8 @@ def test_the_same_condition_twice_keeps_two_separate_scores():
         ConditionSpec("gap_over_ma", {"period": 20, "min_gap": 1.0, "within": 3}),
         ConditionSpec("gap_over_ma", {"period": 60, "min_gap": 1.0, "within": 5}),
     ]
-    assert score_labels(specs) == ["gap_over_ma#1", "gap_over_ma#2"]
+    # 구분은 값이 다른 파라미터로 한다 — #1/#2 보다 무엇인지 바로 읽힌다
+    assert score_labels(specs) == ["gap_over_ma#20", "gap_over_ma#60"]
 
     closes = [10_000.0] * 70 + [9_300.0] * 9 + [10_400.0]
     opens = [closes[0]] + closes[:-2] + [10_350.0]
@@ -211,3 +212,34 @@ def test_bollinger_uses_the_population_standard_deviation():
 
     _, _, upper = ind.bollinger(close, 20, 2.0)
     assert upper.iloc[-1] == pytest.approx(mean + 2 * sd_pop)
+
+
+def test_duplicate_labels_say_which_one_they_are():
+    """`#1`, `#2` 로는 매출인지 영업이익인지 알 수 없다."""
+    from chartfinder.screener import ConditionSpec, label_of, score_labels
+
+    specs = [
+        ConditionSpec("growth_cagr", {"item": "revenue", "years": 3, "min_cagr": 25.0}),
+        ConditionSpec("growth_cagr", {"item": "operating_income", "years": 3, "min_cagr": 40.0}),
+    ]
+    labels = score_labels(specs)
+    assert labels == ["growth_cagr#revenue", "growth_cagr#operating_income"]
+    assert label_of("s_" + labels[0]) == "연평균 성장률 (매출액)"
+    assert label_of("s_" + labels[1]) == "연평균 성장률 (영업이익)"
+
+
+def test_label_of_survives_an_unknown_condition():
+    """지운 조건이 남은 저장 파일을 열어도 터지지 않아야 한다."""
+    from chartfinder.screener import label_of
+
+    # 사람 말로 바꿀 수 없으면 원래 이름을 그대로 보여준다
+    assert label_of("s_없는조건") == "없는조건"
+    assert label_of("s_없는조건#2") == "없는조건#2"
+
+
+def test_identical_duplicates_fall_back_to_numbers():
+    """파라미터가 완전히 같으면 구분할 값이 없다 (의미는 없지만 가능하다)."""
+    from chartfinder.screener import ConditionSpec, score_labels
+
+    specs = [ConditionSpec("above_ma"), ConditionSpec("above_ma")]
+    assert score_labels(specs) == ["above_ma#1", "above_ma#2"]

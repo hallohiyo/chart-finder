@@ -8,15 +8,15 @@ conditions:
   # ── 영업이익 ─────────────────────────────────────────────────
   # '증가했는가' 가 아니라 '얼마나' 늘었는지를 본다.
 
-  # 1. 연평균 성장률 20% 이상 — 성장 속도
-  - key: operating_income_cagr
+  # 1. 영업이익 연평균 성장률 20% 이상 — 성장 속도
+  - key: growth_cagr
     weight: 3.5
-    params: {years: 3, min_cagr: 20.0}
+    params: {item: operating_income, years: 3, min_cagr: 20.0}
 
   # 2. 가장 최근 연도가 전년 대비 급증했는지 — 가속 (적자 탈출도 잡는다)
-  - key: operating_income_surge
+  - key: growth_surge
     weight: 3.0
-    params: {min_growth: 30.0}
+    params: {item: operating_income, min_growth: 30.0}
 
   # 3. 영업이익률이 높은지 — 많이 팔아 조금 남기는 회사와 구분한다
   - key: operating_margin
