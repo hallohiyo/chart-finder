@@ -34,3 +34,10 @@ conditions:
   - key: positive_cash_flow
     weight: 1.5
     params: {years: 3}
+
+  # ── 지수 대비 ────────────────────────────────────────────────
+  # 시장이 다 같이 오른 것과 이 종목이 강한 것은 다르다. 시장이 빠질 때
+  # 덜 빠진 종목도 강한 것으로 본다.
+  - key: relative_strength
+    weight: 2.0
+    params: {period: 20, min_excess: 0.0}

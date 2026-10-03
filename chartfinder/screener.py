@@ -99,6 +99,7 @@ EXPORT_LABELS = {
     "name": "종목명",
     "score": "적합도",
     "strategy": "맞는 전략",
+    "ref_pct": "기준 대비(%)",
     "matched": "충족 조건수",
     "of": "전체 조건수",
     "gap": "2등 전략과 차이",
@@ -305,6 +306,52 @@ def _profile_of(profiles: pd.DataFrame | None, symbol: str) -> dict[str, float] 
     if profiles is None or symbol not in profiles.index:
         return None
     return profiles.loc[symbol].to_dict()
+
+
+class ReferenceNotFound(LookupError):
+    """기준 종목을 결과에서 찾지 못했을 때.
+
+    KeyError 를 쓰면 str() 이 인자를 repr 로 감싸 줄바꿈이 글자 \\n 으로
+    찍힌다. 사용자에게 그대로 보여줄 메시지라 따로 둔다.
+    """
+
+
+def like_reference(
+    result: pd.DataFrame, reference: str, low: float = 80.0, high: float = 100.0
+) -> tuple[pd.DataFrame, float]:
+    """기준 종목 점수의 low~high% 구간에 있는 종목만 남긴다.
+
+    "A 가 10점이면 8~9점짜리" 처럼 찾을 때 쓴다. 절대 점수로 자르면 조건
+    구성에 따라 기준이 달라지는데, 기준 종목을 잡으면 그 종목이 10점인
+    눈금에서 상대적으로 고를 수 있다.
+
+    (걸러낸 결과, 기준 종목 점수) 를 돌려준다. 기준 종목이 결과에 없으면
+    ReferenceNotFound 를 낸다 — 조용히 전체를 돌려주면 걸러진 줄 알게 된다.
+    """
+    if result is None or result.empty:
+        raise ReferenceNotFound("결과가 비어 있어 기준 종목을 찾을 수 없습니다.")
+
+    reference = str(reference).strip()
+    rows = result[result["symbol"].astype(str) == reference]
+    if rows.empty:
+        rows = result[result["name"].astype(str).str.contains(reference, na=False)]
+    if rows.empty:
+        raise ReferenceNotFound(
+            f"기준 종목을 결과에서 찾을 수 없습니다: {reference}\n"
+            "최소 점수(--min-score)나 상위 N(--top) 때문에 빠졌을 수 있습니다."
+        )
+
+    base = float(rows["score"].iloc[0])
+    if base <= 0:
+        raise ReferenceNotFound(
+            f"기준 종목 {reference} 의 점수가 0 입니다 — 비율로 비교할 수 없습니다. "
+            "그 종목이 조건을 하나도 만족하지 않았다는 뜻입니다."
+        )
+
+    ratio = result["score"] / base * 100.0
+    kept = result[(ratio >= low) & (ratio <= high)].copy()
+    kept.insert(3, "ref_pct", ratio[kept.index].round(1))
+    return kept, base
 
 
 def unscored_conditions(result: pd.DataFrame, specs: Iterable[ConditionSpec]) -> list[str]:

@@ -665,6 +665,14 @@ def scan(
     top: int = typer.Option(20, "--top", "-n", help="상위 N종목"),
     min_score: float = typer.Option(0.0, "--min-score", help="이 점수 미만 제외 (0~1)"),
     strict: bool = typer.Option(False, "--strict", help="모든 조건을 완전히 충족한 종목만"),
+    like: Optional[str] = typer.Option(
+        None, "--like",
+        help="기준 종목코드. 그 종목 점수를 100으로 보고 --band 구간에 드는 종목만 남긴다",
+    ),
+    band: str = typer.Option(
+        "80,100", "--band",
+        help="--like 와 함께 쓸 구간 (기준 대비 %). 예: 80,95",
+    ),
     csv: Optional[Path] = typer.Option(
         None, "--csv", "--out",
         help="결과를 파일로 저장. 확장자가 .xlsx 면 단위 서식이 들어간 엑셀로 쓴다",
@@ -691,10 +699,35 @@ def scan(
         redirect_stdout=False, redirect_stderr=False,
     ) as bar:
         task = bar.add_task("scan", total=max(len(tickers), 1))
+        # 기준 종목이 상위 N 에 못 들어 빠지면 비교를 할 수 없다.
+        # --like 를 쓸 때는 전부 채점한 뒤 구간으로 자른다.
         result = screen(
-            market, specs, tickers=tickers, strict=strict, min_score=min_score, top=top,
+            market, specs, tickers=tickers, strict=strict,
+            min_score=0.0 if like else min_score,
+            top=None if like else top,
             progress=lambda done, total: bar.update(task, completed=done, total=max(total, 1)),
         )
+
+    if like and not result.empty:
+        from .screener import ReferenceNotFound, like_reference
+
+        try:
+            low, high = (float(x) for x in band.split(","))
+        except ValueError:
+            console.print(f"[red]--band 는 '낮은값,높은값' 형식입니다: {band}[/]")
+            raise typer.Exit(code=1) from None
+        try:
+            result, base = like_reference(result, like, low, high)
+        except ReferenceNotFound as exc:
+            console.print(f"[red]{exc}[/]")
+            raise typer.Exit(code=1) from None
+        console.print(
+            f"[bold]기준 종목[/] {like} 점수 {base:.3f} → "
+            f"그 {low:g}~{high:g}% 구간({base * low / 100:.3f}~{base * high / 100:.3f})에 "
+            f"드는 종목 {len(result)}개"
+        )
+        if top:
+            result = result.head(top)
 
     if result.empty:
         console.print("[yellow]조건에 맞는 종목이 없습니다.[/] "
@@ -711,6 +744,8 @@ def scan(
     table.add_column("종목", style="cyan", no_wrap=True)
     table.add_column("이름", no_wrap=True)
     table.add_column("점수", justify="right", style="bold green")
+    if "ref_pct" in result.columns:
+        table.add_column("기준대비", justify="right", style="bold")
     table.add_column("충족", justify="right")
     table.add_column("종가", justify="right")
     table.add_column("등락%", justify="right")
@@ -718,8 +753,10 @@ def scan(
         table.add_column(get_condition(col[2:]).label, justify="right", style="dim")
 
     for i, row in enumerate(result.itertuples(index=False), start=1):
-        values = [
-            str(i), row.symbol, row.name, f"{row.score:.3f}",
+        values = [str(i), row.symbol, row.name, f"{row.score:.3f}"]
+        if "ref_pct" in result.columns:
+            values.append(f"{row.ref_pct:.0f}%")
+        values += [
             f"{row.matched}/{len(specs)}", f"{row.close:,.2f}",
             f"[red]{row.chg_pct:+.2f}[/]" if row.chg_pct < 0 else f"[green]{row.chg_pct:+.2f}[/]",
         ]
