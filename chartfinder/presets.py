@@ -59,8 +59,38 @@ class Preset:
         return "profiles" in self.requires
 
 
+def resolve_path(path: str | Path) -> Path:
+    """프리셋 파일을 찾는다. 못 찾으면 어디를 봤는지 담아 예외를 낸다.
+
+    현재 폴더 기준 경로를 먼저 보고, 없으면 설치된 presets 폴더를 본다.
+    확장자나 폴더 이름을 빼고 적어도 찾아준다 — `profit_growth`,
+    `profit_growth.yaml`, `presets/profit_growth.yaml` 이 모두 통한다.
+    """
+    given = Path(path)
+    folder = default_dir()
+    candidates = [
+        given,
+        given.with_suffix(".yaml") if not given.suffix else given,
+        folder / given.name,
+        folder / (given.name + ".yaml" if not given.suffix else given.name),
+    ]
+    for candidate in candidates:
+        if candidate.is_file():
+            return candidate
+    raise FileNotFoundError(
+        f"프리셋을 찾을 수 없습니다: {path}\n"
+        f"찾아본 곳: {', '.join(str(c) for c in dict.fromkeys(candidates))}"
+    )
+
+
+def available(folder: str | Path | None = None) -> list[str]:
+    """쓸 수 있는 프리셋 파일 이름. 오류 메시지에 보여주려고 둔다."""
+    base = Path(folder) if folder else default_dir()
+    return sorted(p.name for p in base.glob("*.yaml")) if base.is_dir() else []
+
+
 def load(path: str | Path) -> Preset:
-    data = yaml.safe_load(Path(path).read_text(encoding="utf-8")) or {}
+    data = yaml.safe_load(resolve_path(path).read_text(encoding="utf-8")) or {}
     raw_conditions = data.get("conditions") or []
     specs = []
     for item in raw_conditions:

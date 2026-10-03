@@ -554,6 +554,19 @@ r=0.001, `net_buy_ratio ↔ net_buy_value` r=0.038 으로 서로 다른 것을 �
 
 ## 프리셋
 
+`--preset` 은 **폴더와 확장자를 빼고 적어도** 찾는다. 셋 다 같다.
+
+```bash
+chartfinder scan -p profit_growth
+chartfinder scan -p profit_growth.yaml
+chartfinder scan -p presets/profit_growth.yaml
+```
+
+현재 폴더를 먼저 보고, 없으면 설치된 `presets` 폴더를 본다 — 바탕화면
+바로가기처럼 현재 폴더가 다른 곳이어도 돌아간다. 못 찾으면 트레이스백 대신
+**어디를 봤는지와 쓸 수 있는 목록**을 보여준다.
+
+
 기본 화면에 그대로 뜨는 목록이다. `requires` 는 필요한 추가 데이터,
 `order` 는 화면에 보일 순서다. 여러 개를 골라 합쳐 쓸 수 있다.
 

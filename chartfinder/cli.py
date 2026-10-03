@@ -26,13 +26,30 @@ app = typer.Typer(
 console = Console()
 
 
+def _load_preset(path) -> "presets_mod.Preset":
+    """프리셋을 읽는다. 없으면 트레이스백 대신 쓸 수 있는 목록을 보여준다."""
+    try:
+        return presets_mod.load(path)
+    except FileNotFoundError as exc:
+        console.print(f"[red]{exc}[/]")
+        names = presets_mod.available()
+        if names:
+            console.print("\n[bold]쓸 수 있는 프리셋[/]")
+            for name in names:
+                console.print(f"  {name}")
+            console.print(
+                "\n[dim]최신 프리셋이 안 보이면 `git pull` 을 먼저 하세요.[/]"
+            )
+        raise typer.Exit(code=1) from None
+
+
 def _resolve_specs(
     cond: list[str], preset: Optional[Path], market: Optional[str], universe: Optional[str]
 ) -> tuple[list[ConditionSpec], str, str]:
     """-c / --preset 을 조건 목록으로 풀고 시장·유니버스를 정한다."""
     specs: list[ConditionSpec] = []
     if preset:
-        loaded = presets_mod.load(preset)
+        loaded = _load_preset(preset)
         specs = list(loaded.conditions)
         market = market or loaded.market
         universe = universe or loaded.universe
@@ -700,7 +717,7 @@ def _scan_multi(
     """전략마다 따로 채점한다. 평균내면 서로 반대인 조건이 섞여 희석된다."""
     from .screener import screen_multi
 
-    loaded = [(path, presets_mod.load(path)) for path in paths]
+    loaded = [(path, _load_preset(path)) for path in paths]
     strategies = {preset.name.split(" — ")[0]: preset.conditions for _, preset in loaded}
     market = market or loaded[0][1].market
     universe = _resolve_universe(market, universe or loaded[0][1].universe)

@@ -454,3 +454,49 @@ def test_fundamentals_progress_reaches_the_end(tmp_path, monkeypatch):
         progress=lambda done, total, sym: seen.append((done, total)),
     )
     assert seen[-1] == (7, 7)
+
+
+def test_preset_is_found_by_name_without_folder_or_extension():
+    """`-p profit_growth` 처럼 적어도 찾아야 한다.
+
+    경로를 현재 폴더 기준으로만 보면, 바탕화면 바로가기나 다른 폴더에서
+    실행할 때 트레이스백이 뜬다.
+    """
+    from chartfinder import presets as presets_mod
+
+    for given in ("profit_growth", "profit_growth.yaml", "presets/profit_growth.yaml"):
+        preset = presets_mod.load(given)
+        assert "영업이익" in preset.name, given
+
+
+def test_missing_preset_says_where_it_looked():
+    """트레이스백 대신 어디를 봤는지 알려줘야 한다."""
+    from chartfinder import presets as presets_mod
+
+    with pytest.raises(FileNotFoundError) as caught:
+        presets_mod.load("presets/없는프리셋.yaml")
+    message = str(caught.value)
+    assert "찾을 수 없습니다" in message
+    assert "찾아본 곳" in message
+
+
+def test_available_lists_the_shipped_presets():
+    from chartfinder import presets as presets_mod
+
+    names = presets_mod.available()
+    assert "profit_growth.yaml" in names
+    assert all(n.endswith(".yaml") for n in names)
+
+
+def test_cli_shows_the_preset_list_instead_of_a_traceback():
+    """없는 프리셋을 주면 쓸 수 있는 목록을 보여준다."""
+    from typer.testing import CliRunner
+
+    from chartfinder.cli import app
+
+    result = CliRunner().invoke(app, ["scan", "-m", "demo", "-p", "없는것.yaml"])
+    assert result.exit_code == 1
+    assert "Traceback" not in result.output
+    assert "쓸 수 있는 프리셋" in result.output
+    assert "profit_growth.yaml" in result.output
+    assert "git pull" in result.output
