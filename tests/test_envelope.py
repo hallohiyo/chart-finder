@@ -36,7 +36,7 @@ def _score(key: str, ctx: Ctx, **params) -> float:
 def test_envelope_bands_are_a_fixed_percentage_of_the_average():
     """볼린저와 달리 변동성에 따라 폭이 변하지 않는다."""
     close = pd.Series([10_000.0] * 30)
-    center, upper, lower = ind.envelope(close, period=20, pct=20.0)
+    lower, center, upper = ind.envelope(close, period=20, pct=20.0)
 
     assert center.iloc[-1] == pytest.approx(10_000.0)
     assert upper.iloc[-1] == pytest.approx(12_000.0)
@@ -175,3 +175,39 @@ def test_envelope_preset_does_not_use_the_unreachable_twenty_percent():
     preset = next(p for _, p in presets_mod.load_all() if "엔벨로프" in p.name)
     spec = next(s for s in preset.conditions if s.key == "envelope_lower")
     assert spec.params["pct"] <= 15.0
+
+
+# ------------------------------------------------------------------ 반환 순서
+
+
+def test_band_functions_share_the_same_return_order():
+    """bollinger 와 envelope 는 같은 모양이므로 순서도 같아야 한다.
+
+    순서가 다르면 `lower, mid, upper = envelope(...)` 처럼 풀어쓸 때
+    상단과 하단이 조용히 뒤바뀐다 — 점수는 나오지만 전부 틀린 값이다.
+    """
+    close = pd.Series([10_000.0] * 30)
+
+    b_low, b_mid, b_up = ind.bollinger(close, 20, 2.0)
+    e_low, e_mid, e_up = ind.envelope(close, 20, 10.0)
+
+    # 하단 < 중심선 < 상단 이어야 한다
+    assert e_low.iloc[-1] < e_mid.iloc[-1] < e_up.iloc[-1]
+    assert e_low.iloc[-1] == pytest.approx(9_000.0)
+    assert e_mid.iloc[-1] == pytest.approx(10_000.0)
+    assert e_up.iloc[-1] == pytest.approx(11_000.0)
+    # 볼린저는 변동이 없으면 세 값이 같다
+    assert b_low.iloc[-1] == b_mid.iloc[-1] == b_up.iloc[-1]
+
+
+def test_bollinger_uses_the_population_standard_deviation():
+    """ddof=0(모표준편차) 인지 ddof=1(표본) 인지로 밴드 폭이 달라진다."""
+    import math
+
+    values = [100.0, 102.0, 98.0, 105.0, 95.0] * 4   # 20개
+    close = pd.Series(values)
+    mean = sum(values) / 20
+    sd_pop = math.sqrt(sum((v - mean) ** 2 for v in values) / 20)
+
+    _, _, upper = ind.bollinger(close, 20, 2.0)
+    assert upper.iloc[-1] == pytest.approx(mean + 2 * sd_pop)

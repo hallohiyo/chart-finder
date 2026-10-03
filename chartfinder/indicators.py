@@ -59,11 +59,13 @@ def envelope(
 
     볼린저와 달리 표준편차가 아니라 고정 비율을 쓴다. 그래서 밴드 폭이
     변동성에 따라 흔들리지 않고, 분할 매수 가격대를 미리 정해 둘 수 있다.
-    (중심선, 상단, 하단) 을 돌려준다.
+
+    (하단, 중심선, 상단) 순서로 돌려준다 — bollinger() 와 같은 순서다.
+    같은 모양의 함수가 순서를 달리하면 풀어쓸 때 조용히 뒤바뀐다.
     """
     center = sma(close, period)
     ratio = pct / 100.0
-    return center, center * (1.0 + ratio), center * (1.0 - ratio)
+    return center * (1.0 - ratio), center, center * (1.0 + ratio)
 
 
 def envelope_position(
@@ -74,7 +76,7 @@ def envelope_position(
     밴드를 벗어나면 0 미만이나 100 초과가 된다 — 자르지 않는다.
     하단 이탈(0 미만)은 하단 터치보다 더 내려간 자리이므로 구분해야 한다.
     """
-    _, upper, lower = envelope(close, period, pct)
+    lower, _, upper = envelope(close, period, pct)
     span = upper - lower
     return (close - lower) / span.replace(0, pd.NA) * 100.0
 
