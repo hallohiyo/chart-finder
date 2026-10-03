@@ -2,7 +2,7 @@ name: 우량주 바닥 반등 — 실적 + 차트
 market: kr
 universe: all
 description: 재무 우량주 조건에 바닥 반등 차트 신호를 합친 23개 조건.
-requires: [fundamentals]
+requires: [fundamentals, flows]
 order: 60
 conditions:
   # ===== 재무 =====
@@ -100,3 +100,15 @@ conditions:
   - key: up_candle_volume
     weight: 1.5
     params: {period: 20, ratio: 1.5, min_gain: 0.0}
+
+  # ── 수급 확인 ────────────────────────────────────────────────
+  # 외국인과 기관이 '같은 날 함께' 담는지. 한쪽이 사고 다른 쪽이 파는 것과
+  # 다르다. 수급은 후행 지표라 뽑는 근거가 아니라 확인용이므로 가중치는 낮다.
+  - key: both_net_buy
+    weight: 1.5
+    params: {days: 5}
+
+  # 얼마나 많이 — 상장주식수 대비 비중 (주식 수는 종목 크기에 좌우된다)
+  - key: net_buy_ratio
+    weight: 1.5
+    params: {who: both, days: 20, min_pct: 0.3}

@@ -317,3 +317,65 @@ def test_amount_columns_come_before_share_columns(tmp_path, monkeypatch):
 
     assert FACT_COLUMNS.index("foreign_value_5d") < FACT_COLUMNS.index("foreign_net_5d")
     assert FACT_COLUMNS.index("inst_value_5d") < FACT_COLUMNS.index("inst_net_5d")
+
+
+def test_removed_presets_are_gone():
+    """신고가 근접과 눌림목 프리셋은 요청으로 삭제했다.
+
+    신고가 근접은 돌파를 확인하지 못해 저항선 아래에서 막힌 종목을 뽑고
+    (실측 87%), 눌림목은 백테스트에서 구분력이 없었다(IC t=-1.24).
+    각 조건은 남아 있어 직접 조합할 수 있다.
+    """
+    from pathlib import Path
+
+    from chartfinder import presets as presets_mod
+    from chartfinder.conditions import get as get_condition
+
+    folder = Path(presets_mod.default_dir())
+    assert not (folder / "near_52w_high.yaml").exists()
+    assert not (folder / "pullback_buy.yaml").exists()
+
+    # 조건 자체는 남아야 한다 — 고급 화면에서 직접 쓸 수 있다
+    get_condition("near_high")
+    get_condition("ma_pullback")
+
+
+def test_flow_confirmation_is_in_most_presets():
+    """수급을 요청받았으므로 대부분의 프리셋에 들어가야 한다."""
+    from chartfinder import presets as presets_mod
+    from chartfinder.conditions import get as get_condition
+
+    # 일부러 빼둔 것들 — 이유는 README 에 적어 두었다
+    without_flows = {
+        "bottom_reversal_noflow.yaml",  # 수급 없이 쓰는 버전
+        "fundamentals.yaml",            # 측정한 구성이라 그대로
+        "delisting_risk.yaml",          # 요건과 무관
+        "breakout.yaml",                # 미국 시장
+    }
+    for path, preset in presets_mod.load_all():
+        flows = sum(
+            1 for spec in preset.conditions
+            if get_condition(spec.key).category == "수급"
+        )
+        if path.name in without_flows:
+            continue
+        assert flows > 0, f"{path.name} 에 수급 조건이 없다"
+        assert preset.needs_flows, f"{path.name} 이 flows 를 요구하지 않는다"
+
+
+def test_flow_weight_stays_below_the_core_signals():
+    """수급은 후행 지표다 — 핵심 신호보다 무겁게 두면 안 된다."""
+    from chartfinder import presets as presets_mod
+    from chartfinder.conditions import get as get_condition
+
+    # 수급 자체가 주축인 전략들 — 이름에 수급이 들어간다
+    flow_driven = {"accumulation.yaml", "bottom_reversal.yaml"}
+
+    for path, preset in presets_mod.load_all():
+        if path.name in flow_driven:
+            continue
+        flow = [s for s in preset.conditions if get_condition(s.key).category == "수급"]
+        others = [s for s in preset.conditions if s not in flow]
+        if not flow or not others:
+            continue
+        assert max(s.weight for s in flow) <= max(s.weight for s in others), path.name

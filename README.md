@@ -58,7 +58,7 @@ chartfinder scan -m kr \
   --top 20 --detail
 
 # 프리셋으로 검색 + CSV 저장
-chartfinder scan -p presets/pullback_buy.yaml --top 30 --csv out/result.csv
+chartfinder scan -p presets/accumulation.yaml --top 30 --csv out/result.csv
 
 # 캐시 상태
 chartfinder status -m kr
@@ -134,7 +134,7 @@ chartfinder-ui
 
 조건·파라미터·가중치를 전부 감추고 **1단계 시장 → 2단계 전략 → 3단계 찾기** 세 단계만 남겼다.
 
-- 전략 이름은 "눌림목 — 상승 중 잠시 쉬어가는 종목" 처럼 **지표 용어와 쉬운 말을 함께** 적고,
+- 전략 이름은 "쌍끌이 매집 — 외국인·기관이 같이 담는 종목" 처럼 **지표 용어와 쉬운 말을 함께** 적고,
   아래에 한 줄 설명과 쓰는 지표 갈래(추세·거래량 …)를 붙인다
 - **기본은 전체 선택.** 조건을 다 넣고 보는 쪽이 보통이라 전부 체크된 상태로 시작하고,
   필요하면 체크를 풀거나 '전체 선택 / 전체 해제' 로 바꾼다. 조건 하나하나를 만지려면 고급 화면으로
@@ -499,6 +499,21 @@ chartfinder update -m kr -u all --profiles
 **근접 만점 15종목 중 13종목(87%)은 돌파하지 않았다.** 그래서 신고가권 전략은
 `breakout_high` 로 돌파를 확인하고, `price_position` 은 보조로만 쓴다.
 
+### 수급은 대부분의 프리셋에 들어 있다
+
+`both_net_buy`(쌍끌이)와 `net_buy_ratio`(누적 매집 비중)를 **가중치 1.5** 로 넣어
+두었다. 수급은 **후행 지표**다 — 외국인이 담은 것은 이미 오른 뒤일 수 있다. 그래서
+뽑는 근거가 아니라 확인용이고, 가중치를 재무(3.0)나 핵심 신호(2.5~3.0)보다 낮게 둔다.
+
+일부러 넣지 않은 프리셋이 있다.
+
+| 프리셋 | 수급을 안 넣은 이유 |
+|---|---|
+| `bottom_reversal_noflow.yaml` | 수급 없이 쓰는 버전이 목적이다 |
+| `fundamentals.yaml` | 백테스트로 측정한 구성이라 비교 가능하게 그대로 둔다 |
+| `delisting_risk.yaml` | 상장폐지 요건과 수급은 무관하다 |
+| `breakout.yaml` | 미국 시장이라 수급 데이터가 없다 |
+
 ## 프리셋
 
 기본 화면에 그대로 뜨는 목록이다. `requires` 는 필요한 추가 데이터,
@@ -513,21 +528,19 @@ chartfinder update -m kr -u all --profiles
 | `gap_breakout_ma.yaml` | 갭 이평선 돌파 — 20/60일선을 갭으로 뛰어넘은 종목 | 8 (`--flows --profiles`) |
 | `bottom_strength.yaml` | 바닥권 + 상대강도 | 8 (`--profiles`) |
 | `high_strength.yaml` | 신고가권 + 상대강도 | 8 (`--profiles`) |
-| `pullback_buy.yaml` | 눌림목 — 상승 중 잠시 쉬어가는 종목 | 4 |
 | `oversold_rebound.yaml` | 과매도 반등 — 많이 빠진 뒤 돌아설 자리 | 4 |
 | `bottom_reversal_noflow.yaml` | 바닥 반등 종합 — 여러 지표가 동시에 신호 | 17 |
 | `bottom_reversal.yaml` | 바닥 반등 + 수급 — 외국인·기관이 사는 종목 | 19 (`--flows`) |
 | `fundamentals.yaml` | 재무 우량주 — 꾸준히 돈 버는 회사 | 6 (`--fundamentals`) |
 | `quality_reversal.yaml` | 우량주 바닥 반등 — 실적 + 차트 | 23 (`--fundamentals`) |
 | `breakout.yaml` | 박스권 돌파 — 거래량 동반 상향 이탈 | 4 |
-| `near_52w_high.yaml` | 신고가 근접 — 52주 최고가 코앞 | 3 |
 | `supply.yaml` | 물량·수급 점검 — 실제 돈과 잠긴 물량 | 9 (`--profiles`) |
 
 ```bash
 chartfinder scan -p presets/bottom_reversal.yaml --top 30 --detail
 
 # 여러 전략을 한 번에 — 전략마다 따로 채점하고 가장 잘 맞는 점수로 순위를 매긴다
-chartfinder scan -p presets/pullback_buy.yaml -p presets/near_52w_high.yaml --top 20
+chartfinder scan -p presets/bottom_strength.yaml -p presets/high_strength.yaml --top 20
 ```
 
 ## 구조
