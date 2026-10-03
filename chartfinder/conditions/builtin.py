@@ -1328,3 +1328,88 @@ def gap_over_ma(ctx: Ctx, period: int, min_gap: float, within: int) -> float:
 
     crossed = (prev_close < ma.shift(1)) & (open_ > ma) & (gap_pct >= min_gap)
     return _recency_score(crossed.fillna(False), within)
+
+
+# --------------------------------------------------------------------------- 영업이익 성장
+#
+# 기존 `영업이익 증가` 는 "해마다 늘었는가" 만 본다. 1% 늘어도 만점이다.
+# 여기 조건들은 "얼마나" 늘었는지와 "수익성이 나아지는지" 를 본다.
+
+
+@condition(
+    "operating_income_cagr", "영업이익 성장률", FUNDAMENTAL,
+    params=(
+        _p("years", "확인 연수", default=3, min=2, max=10),
+        _p("min_cagr", "최소 연평균 성장률 (%)", "float",
+           default=20.0, min=-50.0, max=300.0, step=5.0),
+    ),
+    description="영업이익의 연평균 성장률(CAGR). 구간마다 늘었는지만 보는 "
+                "'영업이익 증가' 와 달리 성장 속도를 본다. "
+                "시작 연도가 적자면 성장률을 낼 수 없어 0점이다 "
+                "(적자 탈출은 '영업이익 급증' 으로 본다).",
+    min_bars=1,
+)
+def operating_income_cagr(ctx: Ctx, years: int, min_cagr: float) -> float:
+    series = ctx.fundamental("operating_income", years)
+    if series is None or len(series) < 2:
+        return 0.0
+    first, last = float(series.iloc[0]), float(series.iloc[-1])
+    # 적자에서 출발하면 복합 성장률이 정의되지 않는다. 음수로 나누면
+    # 부호가 뒤집혀 적자 확대가 고성장처럼 보인다.
+    if first <= 0:
+        return 0.0
+    periods = len(series) - 1
+    if last <= 0:
+        return 0.0
+    cagr = ((last / first) ** (1.0 / periods) - 1.0) * 100.0
+    return soft_gt(cagr, min_cagr, tol=max(abs(min_cagr) * 0.5, 5.0))
+
+
+@condition(
+    "operating_income_surge", "영업이익 급증", FUNDAMENTAL,
+    params=(
+        _p("min_growth", "전년 대비 최소 증가율 (%)", "float",
+           default=50.0, min=-50.0, max=500.0, step=10.0),
+    ),
+    description="가장 최근 연도 영업이익이 전년 대비 크게 늘었는지. "
+                "적자에서 흑자로 돌아선 경우도 잡는다.",
+    min_bars=1,
+)
+def operating_income_surge(ctx: Ctx, min_growth: float) -> float:
+    series = ctx.fundamental("operating_income", 2)
+    if series is None or len(series) < 2:
+        return 0.0
+    before, after = float(series.iloc[0]), float(series.iloc[-1])
+    if before == 0:
+        return 0.0
+    # 적자에서 흑자로 돌아선 것은 증가율로 표현하기 어렵다. 분모에 절대값을
+    # 써서 부호가 뒤집히지 않게 한다 (-100 → +50 이면 +150%).
+    growth = (after - before) / abs(before) * 100.0
+    return soft_gt(growth, min_growth, tol=max(abs(min_growth) * 0.5, 10.0))
+
+
+@condition(
+    "operating_margin_improving", "영업이익률 개선", FUNDAMENTAL,
+    params=(
+        _p("years", "확인 연수", default=3, min=2, max=10),
+        # 기본값 0 이면 보합(10%→10%→10%)도 만점이 된다. '개선' 이라는
+        # 이름과 맞지 않으므로 실제로 올라가야 점수가 나오게 둔다.
+        _p("min_step", "해마다 최소 개선폭 (%p)", "float",
+           default=1.0, min=-10.0, max=30.0, step=0.5),
+    ),
+    description="영업이익률이 해마다 올라가는지. 매출이 늘어도 이익률이 "
+                "떨어지면 남는 게 없다 — 수익성 추세를 본다.",
+    min_bars=1,
+)
+def operating_margin_improving(ctx: Ctx, years: int, min_step: float) -> float:
+    series = ctx.fundamental("operating_margin", years)
+    if series is None or len(series) < 2:
+        return 0.0
+    # 허용폭은 '요구한 개선폭' 에 비례해야 한다. 하한을 2.0%p 로 두면
+    # 기준이 1.0%p 일 때 보합(개선 0%p)도 0.78점을 받는다.
+    tol = max(abs(min_step) * 0.5, 0.2)
+    steps = [
+        soft_gt(float(after) - float(before), min_step, tol=tol)
+        for before, after in zip(series[:-1], series[1:])
+    ]
+    return sum(steps) / len(steps) if steps else 0.0
