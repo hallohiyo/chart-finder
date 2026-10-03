@@ -18,21 +18,27 @@ conditions:
     weight: 1.5
     params: {period: 14, threshold: 30.0, within: 5}
 
-  # 3. 외국인·기관 수급 — 3일 연속 순매수
-  - key: foreign_net_buy
-    weight: 2.0
+  # 3. 수급 — 이름에 '수급' 이 들어간 전략이므로 세 가지를 다 본다.
+  #    '각자 3일 연속' 보다 '같은 날 함께' 가 강한 신호다.
+  - key: both_net_buy
+    weight: 3.0
     params: {days: 3}
-  - key: inst_net_buy
-    weight: 2.0
-    params: {days: 3}
+
+  - key: net_buy_ratio
+    weight: 3.0
+    params: {who: both, days: 20, min_pct: 0.3}
+
+  - key: net_buy_value
+    weight: 2.5
+    params: {who: both, days: 20, min_value: 50.0}
 
   # 4. 거래량 — 3일 연속 30만주 이상 + 거래대금 하한
   - key: volume_floor
     weight: 1.5
     params: {days: 3, min_volume: 300000.0, mode: each}
-  - key: min_trading_value
+  - key: turnover_value
     weight: 1.0
-    params: {period: 20, amount: 1000.0}
+    params: {period: 20, min_value: 10.0}
 
   # 5. DMI — +DI 상향 돌파 후 간격 확대
   - key: dmi_cross_up

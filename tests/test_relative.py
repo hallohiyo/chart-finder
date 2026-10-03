@@ -167,16 +167,6 @@ def _breaking_out() -> pd.DataFrame:
     return _bars(closes)
 
 
-def test_near_high_cannot_tell_a_breakout_from_a_stall():
-    """'고점 5% 이내' 는 저항선 아래에서 막혀 돌아선 자리도 만점을 준다.
-
-    이걸 돌파 신호로 쓰면 안 되는 이유다.
-    """
-    stalling = Ctx(_rising_then_stalling())
-    # 돌파 조건과 같은 60일 창으로 견준다
-    assert _score("near_high", stalling, period=60, max_gap=5.0) == 1.0
-
-
 def test_breakout_high_rejects_the_stall():
     stalling = Ctx(_rising_then_stalling())
     breaking = Ctx(_breaking_out())

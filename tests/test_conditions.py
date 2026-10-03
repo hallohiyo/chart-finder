@@ -49,11 +49,6 @@ def test_volume_surge_detects_spike():
     assert get("volume_surge").score(Ctx(make_df(closes, volumes)), {"ratio": 3}) == 1.0
 
 
-def test_near_high_full_score_at_new_high(uptrend, downtrend):
-    assert get("near_high").score(Ctx(uptrend)) == 1.0
-    assert get("near_high").score(Ctx(downtrend)) < 0.5
-
-
 def test_box_range_prefers_flat_chart(flat):
     steep = make_df(100 * np.exp(np.linspace(0, 1.2, 120)))  # 60일 동안 크게 상승
     assert get("box_range").score(Ctx(flat)) == 1.0
@@ -139,7 +134,7 @@ def test_up_candle_volume_requires_both_price_and_volume():
 def test_flow_conditions_score_zero_without_flow_data(uptrend):
     """수급을 받지 않은 캐시에서는 0점이어야 한다 (예외가 아니라)."""
     ctx = Ctx(uptrend)
-    for key in ("foreign_net_buy", "inst_net_buy", "net_buy_volume"):
+    for key in ("foreign_net_buy", "inst_net_buy", "net_buy_ratio"):
         assert get(key).score(ctx) == 0.0
 
 
@@ -150,15 +145,6 @@ def test_foreign_net_buy_counts_consecutive_days():
 
     df.loc[df.index[-2], "foreign_net"] = -100.0  # 3일 중 하루만 매도
     assert get("foreign_net_buy").score(Ctx(df), {"days": 3}) == pytest.approx(2 / 3)
-
-
-def test_net_buy_volume_sums_selected_investors():
-    df = make_df([100.0] * 40)
-    df["foreign_net"] = [10_000.0] * 40
-    df["inst_net"] = [10_000.0] * 40
-    cond = get("net_buy_volume")
-    assert cond.score(Ctx(df), {"days": 5, "min_shares": 100_000, "who": "both"}) == 1.0
-    assert cond.score(Ctx(df), {"days": 5, "min_shares": 100_000, "who": "foreign"}) < 1.0
 
 
 def _capitulation_turn(tail_rate: float = 0.005, tail_days: int = 3):
@@ -232,8 +218,14 @@ def test_flow_conditions_tolerate_unpublished_last_day():
     df["inst_net"] = [1000.0] * 39 + [None]
 
     assert get("foreign_net_buy").score(Ctx(df), {"days": 3}) == 1.0
-    assert get("net_buy_volume").score(
-        Ctx(df), {"days": 5, "min_shares": 5000, "who": "foreign"}
+    # 금액 기준 조건도 마지막 빈 행을 건너뛰어야 한다
+    assert get("net_buy_value").score(
+        Ctx(df), {"days": 5, "min_value": 0.001, "who": "foreign"}
+    ) == 1.0
+    # 비중 기준은 상장주식수가 있어야 한다
+    assert get("net_buy_ratio").score(
+        Ctx(df, None, {"shares": 100_000.0}),
+        {"days": 5, "min_pct": 1.0, "who": "foreign"},
     ) == 1.0
 
 

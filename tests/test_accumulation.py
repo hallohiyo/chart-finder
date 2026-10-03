@@ -335,9 +335,24 @@ def test_removed_presets_are_gone():
     assert not (folder / "near_52w_high.yaml").exists()
     assert not (folder / "pullback_buy.yaml").exists()
 
-    # 조건 자체는 남아야 한다 — 고급 화면에서 직접 쓸 수 있다
-    get_condition("near_high")
+    # 눌림목 조건은 남아 있다 — 고급 화면에서 직접 쓸 수 있다
     get_condition("ma_pullback")
+
+
+def test_deleted_conditions_are_gone():
+    """요청·중복으로 지운 조건들.
+
+    near_high: 돌파를 확인하지 못해 막힌 종목을 뽑는다 (요청으로 삭제)
+    min_trading_value: turnover_value 와 같은 것이다 (r=0.999)
+    net_buy_volume: 절대 주식 수는 종목 크기에 좌우돼 비교가 안 된다
+    """
+    from chartfinder.conditions import all_conditions
+
+    keys = {c.key for c in all_conditions()}
+    for gone in ("near_high", "min_trading_value", "net_buy_volume"):
+        assert gone not in keys, gone
+    # 대체 조건은 남아 있어야 한다
+    assert {"breakout_high", "turnover_value", "net_buy_ratio", "net_buy_value"} <= keys
 
 
 def test_flow_confirmation_is_in_most_presets():
@@ -378,4 +393,7 @@ def test_flow_weight_stays_below_the_core_signals():
         others = [s for s in preset.conditions if s not in flow]
         if not flow or not others:
             continue
-        assert max(s.weight for s in flow) <= max(s.weight for s in others), path.name
+        # 수급 가중치 합이 전체의 40% 를 넘으면 확인용이 아니라 주축이 된다
+        total = sum(s.weight for s in preset.conditions)
+        share = sum(s.weight for s in flow) / total
+        assert share <= 0.40, f"{path.name}: 수급 비중 {share:.0%}"

@@ -22,9 +22,9 @@ conditions:
   - key: volume_floor
     weight: 1.5
     params: {days: 3, min_volume: 300000.0, mode: each}
-  - key: min_trading_value
+  - key: turnover_value
     weight: 1.0
-    params: {period: 20, amount: 1000.0}
+    params: {period: 20, min_value: 10.0}
 
   # 5. DMI — +DI 상향 돌파 후 간격 확대
   - key: dmi_cross_up

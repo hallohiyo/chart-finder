@@ -100,7 +100,7 @@ def test_headline_score_is_the_best_strategy_not_the_average(tmp_path, monkeypat
     tickers = _demo_setup(tmp_path, monkeypatch)
     result = screen_multi(
         "demo",
-        {"고점": [ConditionSpec("near_high")], "저점": [ConditionSpec("near_low")]},
+        {"고점": [ConditionSpec("price_position", {"period": 252, "low": 70.0, "high": 100.0})], "저점": [ConditionSpec("near_low")]},
         tickers=tickers,
     )
     for row in result.to_dict("records"):
@@ -169,7 +169,7 @@ def test_gap_shows_whether_one_strategy_clearly_won(tmp_path, monkeypatch):
     tickers = _demo_setup(tmp_path, monkeypatch, count=10)
     result = screen_multi(
         "demo",
-        {"고점": [ConditionSpec("near_high")], "바닥": [ConditionSpec("near_low")]},
+        {"고점": [ConditionSpec("price_position", {"period": 252, "low": 70.0, "high": 100.0})], "바닥": [ConditionSpec("near_low")]},
         tickers=tickers,
     )
     # 두 전략이 반대이므로 한쪽이 높으면 차이가 커야 한다
@@ -188,7 +188,7 @@ def test_overall_is_kept_only_as_a_reference_column(tmp_path, monkeypatch):
     tickers = _demo_setup(tmp_path, monkeypatch, count=8)
     result = screen_multi(
         "demo",
-        {"고점": [ConditionSpec("near_high")], "바닥": [ConditionSpec("near_low")]},
+        {"고점": [ConditionSpec("price_position", {"period": 252, "low": 70.0, "high": 100.0})], "바닥": [ConditionSpec("near_low")]},
         tickers=tickers,
     )
     assert "overall" in result.columns

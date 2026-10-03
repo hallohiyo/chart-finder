@@ -135,7 +135,7 @@ def test_flow_preset_runs_on_demo_data(demo_cache):
     assert not result.empty
     assert result["score"].between(0, 1).all()
     # 수급 조건도 실제로 채점된다 (demo 는 합성 수급을 갖고 있다)
-    assert result["s_foreign_net_buy"].max() > 0
+    assert result["s_both_net_buy"].max() > 0
 
 
 def test_update_reports_why_flows_failed(tmp_path, monkeypatch):

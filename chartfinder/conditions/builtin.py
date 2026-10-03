@@ -326,39 +326,7 @@ def volume_dryup(ctx: Ctx, period: int, ratio: float) -> float:
     return soft_lt(ctx.last(ctx.volume_ratio(period)), ratio, tol=0.2)
 
 
-@condition(
-    "min_trading_value", "최소 거래대금", FILTER,
-    params=(
-        _p("period", "평균 기간", default=20, min=1, max=120),
-        _p("amount", "최소 평균 거래대금 (백만)", "float", default=1000.0, min=0.0, max=1e6, step=100.0),
-    ),
-    description="유동성 필터. 평균 거래대금이 기준 이상 (통화는 시장 기준: 원/달러).",
-    min_bars=5,
-)
-def min_trading_value(ctx: Ctx, period: int, amount: float) -> float:
-    value = ctx.last(ctx.trading_value(period))
-    if value is None:
-        return 0.0
-    return soft_gt(value / 1e6, amount, tol=max(amount * 0.2, 1.0))
-
-
 # --------------------------------------------------------------------------- 가격위치
-
-
-@condition(
-    "near_high", "신고가 근접", POSITION,
-    params=(
-        _p("period", "기간 (일)", default=252, min=20, max=1000),
-        _p("max_gap", "고점 대비 낙폭 이내 (%)", "float", default=5.0, min=0.0, max=50.0, step=0.5),
-    ),
-    description="기간 최고가 대비 max_gap% 이내.",
-    min_bars=60,
-)
-def near_high(ctx: Ctx, period: int, max_gap: float) -> float:
-    dd = ctx.last(ind.drawdown_from_high(ctx.close, period))
-    if dd is None:
-        return 0.0
-    return soft_lt(abs(dd), max_gap, tol=max(max_gap * 0.5, 1.0))
 
 
 @condition(
@@ -706,29 +674,6 @@ def foreign_net_buy(ctx: Ctx, days: int) -> float:
 )
 def inst_net_buy(ctx: Ctx, days: int) -> float:
     return _net_buy_days(ctx.flow("inst_net"), days)
-
-
-@condition(
-    "net_buy_volume", "누적 순매수 수량", FLOW,
-    params=(
-        _p("days", "누적 일수", default=5, min=1, max=60),
-        _p("min_shares", "최소 순매수 (주)", "float", default=100_000.0, min=0.0, max=1e9, step=10_000.0),
-        _p("who", "대상", "choice", default="both", choices=("foreign", "inst", "both")),
-    ),
-    description="외국인/기관의 N일 누적 순매수 주식 수가 기준 이상.",
-    min_bars=5,
-)
-def net_buy_volume(ctx: Ctx, days: int, min_shares: float, who: str) -> float:
-    series = []
-    if who in ("foreign", "both"):
-        series.append(ctx.flow("foreign_net"))
-    if who in ("inst", "both"):
-        series.append(ctx.flow("inst_net"))
-    available = [s for s in series if s is not None]
-    if not available:
-        return 0.0
-    total = sum(float(s.dropna().tail(days).sum()) for s in available)
-    return soft_gt(total, min_shares, tol=max(min_shares * 0.3, 1.0))
 
 
 @condition(

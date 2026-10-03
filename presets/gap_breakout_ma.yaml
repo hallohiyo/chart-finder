@@ -25,10 +25,19 @@ conditions:
     weight: 2.0
     params: {min_pct: 1.0, period: 20}
 
-  # 5. 외국인·기관이 같이 담는지
+  # 5. 수급 — 갭은 '누가 담았는지' 가 중요하다. 세력이 띄운 갭과 외국인·
+  #    기관이 들어온 갭은 다르다.
   - key: both_net_buy
-    weight: 2.0
+    weight: 2.5
     params: {days: 3}
+
+  - key: net_buy_ratio
+    weight: 2.5
+    params: {who: both, days: 20, min_pct: 0.3}
+
+  - key: net_buy_value
+    weight: 2.0
+    params: {who: both, days: 20, min_value: 50.0}
 
   # 6. 이격도가 과열은 아닌지 — 갭으로 이미 많이 뜬 종목은 위험하다
   - key: disparity_range
