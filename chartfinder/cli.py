@@ -26,6 +26,23 @@ app = typer.Typer(
 console = Console()
 
 
+def _save_result(result, path: Path) -> None:
+    """결과를 저장한다. .xlsx 면 단위 서식까지 넣는다."""
+    from . import excel
+
+    if str(path).lower().endswith(".xlsx"):
+        if not excel.available():
+            console.print(
+                "[yellow]엑셀 저장에는 openpyxl 이 필요합니다.[/] "
+                "`pip install openpyxl` 로 설치하거나 .csv 로 저장하세요."
+            )
+            raise typer.Exit(code=1)
+        excel.save(result, path)
+    else:
+        export_frame(result).to_csv(path, index=False, encoding="utf-8-sig")
+    console.print(f"[green]저장[/] {path}")
+
+
 def _load_preset(path) -> "presets_mod.Preset":
     """프리셋을 읽는다. 없으면 트레이스백 대신 쓸 수 있는 목록을 보여준다."""
     try:
@@ -634,7 +651,10 @@ def scan(
     top: int = typer.Option(20, "--top", "-n", help="상위 N종목"),
     min_score: float = typer.Option(0.0, "--min-score", help="이 점수 미만 제외 (0~1)"),
     strict: bool = typer.Option(False, "--strict", help="모든 조건을 완전히 충족한 종목만"),
-    csv: Optional[Path] = typer.Option(None, "--csv", help="결과를 CSV로 저장"),
+    csv: Optional[Path] = typer.Option(
+        None, "--csv", "--out",
+        help="결과를 파일로 저장. 확장자가 .xlsx 면 단위 서식이 들어간 엑셀로 쓴다",
+    ),
     detail: bool = typer.Option(False, "--detail", "-d", help="조건별 점수도 표시"),
 ) -> None:
     """조건에 가장 근접한 종목을 찾는다."""
@@ -706,8 +726,7 @@ def scan(
 
     if csv:
         csv.parent.mkdir(parents=True, exist_ok=True)
-        export_frame(result).to_csv(csv, index=False, encoding="utf-8-sig")
-        console.print(f"[green]저장[/] {csv}")
+        _save_result(result, csv)
 
 
 def _scan_multi(
@@ -793,8 +812,7 @@ def _scan_multi(
 
     if csv:
         csv.parent.mkdir(parents=True, exist_ok=True)
-        export_frame(result).to_csv(csv, index=False, encoding="utf-8-sig")
-        console.print(f"[green]저장[/] {csv}")
+        _save_result(result, csv)
 
 
 def _print_breakdown(result, score_cols: list[str]) -> None:

@@ -551,15 +551,29 @@ class App(tk.Tk):
         if self.result is None or self.result.empty:
             messagebox.showwarning("결과 없음", "먼저 종목을 찾아주세요.")
             return
-        path = filedialog.asksaveasfilename(
-            defaultextension=".csv", filetypes=[("엑셀에서 열 수 있는 파일", "*.csv")],
-            initialfile="찾은종목.csv",
-        )
-        if path:
-            from chartfinder.screener import export_frame
+        from chartfinder import excel
 
+        if excel.available():
+            types = [("엑셀 파일", "*.xlsx"), ("CSV 파일", "*.csv")]
+            default, name = ".xlsx", "찾은종목.xlsx"
+        else:
+            types = [("엑셀에서 열 수 있는 파일", "*.csv")]
+            default, name = ".csv", "찾은종목.csv"
+
+        path = filedialog.asksaveasfilename(
+            defaultextension=default, filetypes=types, initialfile=name,
+        )
+        if not path:
+            return
+
+        from chartfinder.screener import export_frame
+
+        if str(path).lower().endswith(".xlsx") and excel.available():
+            # 숫자는 숫자로 두고 단위만 표시한다 (정렬·합계가 살아 있다)
+            excel.save(self.result, path)
+        else:
             export_frame(self.result).to_csv(path, index=False, encoding="utf-8-sig")
-            self.status.set(f"저장했습니다: {path}")
+        self.status.set(f"저장했습니다: {path}")
 
     def on_advanced(self) -> None:
         """조건을 직접 만지고 싶을 때 여는 원래 화면."""

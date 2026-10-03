@@ -391,7 +391,14 @@ class App(tk.Tk):
             initialfile=f"scan_{self.result_market}.csv",
         )
         if path:
-            export_frame(self.result).to_csv(path, index=False, encoding="utf-8-sig")
+            from chartfinder import excel
+
+            if str(path).lower().endswith(".xlsx") and excel.available():
+                excel.save(self.result, path)
+            else:
+                export_frame(self.result).to_csv(
+                    path, index=False, encoding="utf-8-sig"
+                )
             self.status.set(f"저장됨: {path}")
 
     def on_load_preset(self) -> None:

@@ -99,6 +99,8 @@ EXPORT_LABELS = {
     "chg_pct": "등락률(%)",
     "date": "기준일",
     "overall": "전략 평균(참고용)",
+    "marcap_text": "시가총액",
+    "turnover_text": "거래대금",
     "turnover_20d": "거래대금 20일평균(억)",
     "marcap": "시가총액(억)",
     "foreign_value_5d": "외국인 순매수 5일(억)",
@@ -129,6 +131,9 @@ def export_frame(result: pd.DataFrame) -> pd.DataFrame:
 
 #: 점수가 아닌 실제 숫자 컬럼의 표시 순서
 FACT_COLUMNS = [
+    # 조/억을 자동으로 바꿔 읽는 요약 칸. 숫자 칸과 따로 두는 이유는
+    # 한 칸에 단위를 섞으면 정렬이 뒤섞이기 때문이다.
+    "marcap_text", "turnover_text",
     "turnover_20d", "marcap",
     # 금액을 앞에 둔다. 주식 수는 종목마다 주가가 달라 서로 비교가 안 된다
     "foreign_value_5d", "foreign_value_20d",
@@ -173,14 +178,18 @@ def facts(df: pd.DataFrame, profile: dict[str, float] | None = None) -> dict[str
     """
     out: dict[str, Any] = {}
 
+    from .display import _money
+
     turnover = (df["close"] * df["volume"]).tail(20).mean()
     if pd.notna(turnover):
         out["turnover_20d"] = round(float(turnover) / 1e8, 1)  # 억원
+        out["turnover_text"] = _money(out["turnover_20d"])
 
     if profile:
         marcap = profile.get("marcap")
         if marcap is not None and pd.notna(marcap):
             out["marcap"] = round(float(marcap) / 1e8, 0)  # 억원
+            out["marcap_text"] = _money(out["marcap"])
 
     for column, label in (("foreign_net", "foreign"), ("inst_net", "inst")):
         if column not in df.columns:
