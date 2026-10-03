@@ -47,6 +47,7 @@ class DemoSource(DataSource):
                     name=f"데모{i:03d} ({profile})",
                     market=self.market,
                     exchange="DEMO",
+                    sector=_DEMO_SECTORS[i % len(_DEMO_SECTORS)],
                 )
             )
         return tickers
@@ -67,6 +68,10 @@ class DemoSource(DataSource):
     def fetch_profiles(self, symbols: list[str], universe: str = "all") -> pd.DataFrame:
         self.profile_notes = {"합성 종목 정보": "받음"}
         return generate_profiles(symbols)
+
+
+#: 합성 업종. 업종 조건을 오프라인에서 시험할 수 있게 둔다.
+_DEMO_SECTORS = ("반도체", "바이오", "2차전지", "금융", "건설")
 
 
 def _seed(symbol: str) -> int:

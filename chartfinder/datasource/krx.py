@@ -52,6 +52,13 @@ class KrxSource(DataSource):
         code_col = _first_col(listing, ["Code", "Symbol"])
         name_col = _first_col(listing, ["Name"])
         marcap_col = _first_col(listing, ["Marcap", "MarketCap"], required=False)
+        # 업종 컬럼 이름이 버전·시장마다 달라 후보를 늘어놓는다.
+        # 없으면 업종 조건이 0점이 되고 doctor 가 그 사실을 알려준다.
+        sector_col = _first_col(
+            listing,
+            ["Sector", "Industry", "업종", "업종명", "Dept", "SectorName", "IndustryName"],
+            required=False,
+        )
 
         tickers: list[Ticker] = []
         for row in listing.to_dict("records"):
@@ -70,6 +77,11 @@ class KrxSource(DataSource):
                     market=self.market,
                     exchange=str(row.get(EXCHANGE_COL, "")),
                     marcap=float(marcap) if pd.notna(marcap) else None,
+                    sector=(
+                        str(row.get(sector_col, "")).strip()
+                        if sector_col and pd.notna(row.get(sector_col))
+                        else ""
+                    ),
                 )
             )
         return tickers

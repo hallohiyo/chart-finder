@@ -1478,3 +1478,56 @@ def higher_lows(ctx: Ctx, period: int, segments: int) -> float:
     lows = [float(window.iloc[i * size : (i + 1) * size].min()) for i in range(segments)]
     steps = [1.0 if after > before else 0.0 for before, after in zip(lows[:-1], lows[1:])]
     return sum(steps) / len(steps) if steps else 0.0
+
+
+# --------------------------------------------------------------------------- 업종
+#
+# 종목 하나만 봐서는 업종 강도를 알 수 없다. 화면이 같은 업종 종목들의
+# 수익률을 미리 집계해 넘겨준다 (중간값 — 평균은 급등주 하나에 끌려간다).
+# 종목 목록에 업종 정보가 없는 소스에서는 0점이 되고, doctor 가 알려준다.
+
+#: 업종에 종목이 이보다 적으면 비교가 의미 없다
+MIN_SECTOR_SIZE = 5
+
+
+@condition(
+    "sector_strength", "업종 강도", POSITION,
+    params=(
+        _p("period", "비교 일수", default=20, min=3, max=250),
+        _p("min_excess", "지수 대비 최소 초과 (%p)", "float",
+           default=0.0, min=-50.0, max=100.0, step=1.0),
+    ),
+    description="이 종목이 속한 업종 전체가 지수보다 강한지. 개별 종목만 보면 "
+                "업종이 무너지는 와중에 혼자 버티는 종목을 고르게 된다. "
+                "업종 정보와 비교 지수가 모두 있어야 한다.",
+    min_bars=10,
+)
+def sector_strength(ctx: Ctx, period: int, min_excess: float) -> float:
+    if ctx.sector_size < MIN_SECTOR_SIZE:
+        return 0.0
+    sector = ctx.sector_return(period)
+    market = ctx.benchmark_return(period)
+    if sector is None or market is None:
+        return 0.0
+    return soft_gt(sector - market, min_excess, tol=max(abs(min_excess) * 0.5, 3.0))
+
+
+@condition(
+    "sector_relative_strength", "업종 내 상대강도", MOMENTUM,
+    params=(
+        _p("period", "비교 일수", default=20, min=3, max=250),
+        _p("min_excess", "업종 대비 최소 초과 (%p)", "float",
+           default=5.0, min=-50.0, max=100.0, step=1.0),
+    ),
+    description="같은 업종 종목들의 중간값보다 얼마나 더 올랐는지. 업종이 다 같이 "
+                "오른 것과 그 안에서 앞서 가는 것은 다르다.",
+    min_bars=10,
+)
+def sector_relative_strength(ctx: Ctx, period: int, min_excess: float) -> float:
+    if ctx.sector_size < MIN_SECTOR_SIZE:
+        return 0.0
+    own = ctx.own_return(period)
+    sector = ctx.sector_return(period)
+    if own is None or sector is None:
+        return 0.0
+    return soft_gt(own - sector, min_excess, tol=max(abs(min_excess) * 0.5, 3.0))

@@ -443,6 +443,20 @@ def doctor(
         console.print(f"   {len(tickers)}종목 · 예: {tickers[0].symbol} {tickers[0].name}")
         symbol = symbol or tickers[0].symbol
 
+        # 업종 정보가 오는지 — 없으면 업종 조건 2개가 0점이 된다
+        with_sector = [t for t in tickers if t.sector]
+        if with_sector:
+            kinds = sorted({t.sector for t in with_sector})
+            console.print(
+                f"   [green]업종 {len(kinds)}종[/] · {len(with_sector)}/{len(tickers)}종목 "
+                f"· 예: {', '.join(kinds[:5])}"
+            )
+        else:
+            console.print(
+                "   [yellow]업종 정보가 없습니다[/] — 업종 강도·업종 내 상대강도 "
+                "조건이 0점이 됩니다. 종목 목록에 업종 컬럼이 없습니다."
+            )
+
     if not symbol:
         raise typer.Exit(code=1)
 

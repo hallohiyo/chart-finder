@@ -10,10 +10,17 @@ import pandas as pd
 from . import cache
 from .datasource import get_source
 from .conditions import Ctx, get as get_condition
+from .conditions.base import SectorStats
 from .conditions.builtin import FUNDAMENTAL as FUNDAMENTAL_CATEGORY
 
 #: 비교 지수를 필요로 하는 조건. 카테고리로는 구분되지 않아 이름으로 둔다.
-_BENCHMARK_CONDITIONS = frozenset({"relative_strength"})
+_BENCHMARK_CONDITIONS = frozenset({"relative_strength", "sector_strength"})
+
+#: 업종 집계를 필요로 하는 조건
+_SECTOR_CONDITIONS = frozenset({"sector_strength", "sector_relative_strength"})
+
+#: 업종 수익률을 미리 계산해 둘 기간들 (조건이 쓰는 period 를 모아 쓴다)
+SECTOR_PERIODS = (5, 20, 60, 120)
 from .datasource import Ticker
 
 ProgressFn = Callable[[int, int], None]
@@ -67,6 +74,7 @@ def score_one(
     fundamentals: pd.DataFrame | None = None,
     profile: dict[str, float] | None = None,
     benchmark: pd.DataFrame | None = None,
+    sector: SectorStats | None = None,
 ) -> dict[str, float]:
     """종목 하나에 대한 조건별 점수.
 
@@ -74,7 +82,7 @@ def score_one(
     (`gap_over_ma`, `gap_over_ma#2`). 키만 쓰면 뒤쪽이 앞쪽을 덮어쓴다.
     """
     specs = list(specs)
-    ctx = Ctx(df, fundamentals, profile, benchmark)
+    ctx = Ctx(df, fundamentals, profile, benchmark, sector)
     cached: dict[tuple, float] = {}
     out = {}
     for label, spec in zip(score_labels(specs), specs):
@@ -241,6 +249,47 @@ def _benchmark_of(
     return frames.get(name) if name else None
 
 
+def _sector_stats(
+    market: str, tickers: list[Ticker], specs: Iterable[ConditionSpec]
+) -> dict[str, "SectorStats"]:
+    """업종별 수익률 집계. 업종 조건이 있을 때만 계산한다.
+
+    종목 하나만 봐서는 업종 강도를 알 수 없으므로 화면이 미리 집계한다.
+    평균이 아니라 중간값을 쓴다 — 업종에 급등주 하나가 섞이면 평균이 끌려간다.
+    """
+    wanted = {spec.params.get("period", 20) for spec in specs if spec.key in _SECTOR_CONDITIONS}
+    if not wanted:
+        return {}
+    periods = sorted({int(p) for p in wanted} | set(SECTOR_PERIODS))
+
+    by_sector: dict[str, list[float]] = {}
+    returns: dict[str, dict[int, list[float]]] = {}
+    for ticker in tickers:
+        if not ticker.sector:
+            continue
+        df = cache.load(market, ticker.symbol)
+        if df is None or df.empty:
+            continue
+        close = df["close"]
+        by_sector.setdefault(ticker.sector, []).append(0.0)
+        bucket = returns.setdefault(ticker.sector, {p: [] for p in periods})
+        for period in periods:
+            if len(close) > period:
+                past, now = float(close.iloc[-period - 1]), float(close.iloc[-1])
+                if past > 0:
+                    bucket[period].append((now / past - 1.0) * 100.0)
+
+    out: dict[str, SectorStats] = {}
+    for sector, members in by_sector.items():
+        medians = {
+            period: float(pd.Series(values).median())
+            for period, values in returns[sector].items()
+            if values
+        }
+        out[sector] = SectorStats(name=sector, size=len(members), returns=medians)
+    return out
+
+
 def _profiles_for(
     market: str, specs: Iterable[ConditionSpec]
 ) -> pd.DataFrame | None:
@@ -319,6 +368,7 @@ def screen_multi(
     )
     profiles = _profiles_for(market, all_specs)
     benchmarks = _benchmarks_for(market, all_specs)
+    sectors = _sector_stats(market, tickers, all_specs)
 
     rows: list[dict[str, Any]] = []
     for i, ticker in enumerate(tickers, start=1):
@@ -336,6 +386,7 @@ def screen_multi(
             fundamentals,
             _profile_of(profiles, ticker.symbol),
             _benchmark_of(market, benchmarks, ticker.exchange),
+            sectors.get(ticker.sector),
         )
         # 조건 점수는 전략끼리 공유한다 (같은 조건을 두 번 계산하지 않도록)
         cache_by_key: dict[tuple, float] = {}
@@ -455,6 +506,7 @@ def screen(
     )
     profiles = _profiles_for(market, specs)
     benchmarks = _benchmarks_for(market, specs)
+    sectors = _sector_stats(market, tickers, specs)
 
     rows: list[dict[str, Any]] = []
     total = len(tickers)
@@ -470,6 +522,7 @@ def screen(
             df, specs, fundamentals,
             _profile_of(profiles, ticker.symbol),
             _benchmark_of(market, benchmarks, ticker.exchange),
+            sectors.get(ticker.sector),
         )
         total_score = combine(scores, specs)
         if strict and any(s < STRICT_PASS for s in scores.values()):

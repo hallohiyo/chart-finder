@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import json
 import os
-from dataclasses import asdict
+from dataclasses import asdict, fields
 from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Callable, Iterable
@@ -31,6 +31,10 @@ FUNDAMENTAL_TTL_DAYS = 30
 
 #: 종목 정보(시가총액·주식수·지분율)는 하루 한 번이면 충분하다
 PROFILE_TTL_DAYS = 1
+
+#: 종목 목록에 담는 항목이 바뀌면 올린다. 옛 캐시를 그대로 쓰면 새로 생긴
+#: 항목(업종 등)이 비어 있어 그 조건이 조용히 0점이 된다.
+TICKER_SCHEMA = 2
 #: 수급을 처음 받을 때 거슬러 올라갈 일수.
 #: 수급 조건이 보는 구간은 길어야 수십 일이라 시세만큼 길게 받을 이유가 없다.
 FLOW_HISTORY_DAYS = 120
@@ -82,15 +86,30 @@ def _ticker_path(market: str, universe: str) -> Path:
 def get_tickers(market: str, universe: str, refresh: bool = False) -> list[Ticker]:
     path = _ticker_path(market, universe)
     if not refresh and path.exists():
-        payload = json.loads(path.read_text(encoding="utf-8"))
-        fetched = date.fromisoformat(payload["fetched_at"])
-        if (date.today() - fetched).days <= TICKER_TTL_DAYS:
-            return [Ticker(**t) for t in payload["tickers"]]
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+            fetched = date.fromisoformat(payload["fetched_at"])
+        except Exception:
+            payload, fetched = {}, date(1970, 1, 1)
+        fresh = (date.today() - fetched).days <= TICKER_TTL_DAYS
+        # 담는 항목이 늘면(업종 추가 등) 옛 캐시에는 그 값이 없다. 그대로 쓰면
+        # 새 조건이 조용히 0점이 되므로, 판이 다르면 다시 받는다.
+        same_schema = payload.get("schema") == TICKER_SCHEMA
+        if fresh and same_schema:
+            known = {f.name for f in fields(Ticker)}
+            return [
+                Ticker(**{k: v for k, v in t.items() if k in known})
+                for t in payload["tickers"]
+            ]
 
     tickers = get_source(market).list_tickers(universe)
     path.write_text(
         json.dumps(
-            {"fetched_at": date.today().isoformat(), "tickers": [asdict(t) for t in tickers]},
+            {
+                "schema": TICKER_SCHEMA,
+                "fetched_at": date.today().isoformat(),
+                "tickers": [asdict(t) for t in tickers],
+            },
             ensure_ascii=False,
         ),
         encoding="utf-8",

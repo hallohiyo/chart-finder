@@ -17,6 +17,19 @@ from .. import indicators as ind
 MIN_BARS = 30
 
 
+@dataclass(frozen=True)
+class SectorStats:
+    """업종 집계. 종목 하나만 봐서는 업종 강도를 알 수 없어 미리 계산해 넘긴다."""
+
+    name: str
+    size: int
+    #: {기간: 중간값 수익률(%)}
+    returns: dict[int, float] = field(default_factory=dict)
+
+    def median_return(self, period: int) -> float | None:
+        return self.returns.get(period)
+
+
 class Ctx:
     """종목 하나의 일봉과 지표 계산 결과 캐시.
 
@@ -30,11 +43,13 @@ class Ctx:
         fundamentals: pd.DataFrame | None = None,
         profile: dict[str, float] | None = None,
         benchmark: pd.DataFrame | None = None,
+        sector: "SectorStats | None" = None,
     ) -> None:
         self.df = df
         self.fundamentals = fundamentals
         self._profile = profile or {}
         self._benchmark = benchmark
+        self._sector = sector
         self._memo: dict[tuple, Any] = {}
 
     # ---------------------------------------------------------------- 기본 시세
@@ -86,6 +101,24 @@ class Ctx:
         except (TypeError, ValueError):
             return None
         return None if pd.isna(value) else value
+
+    def sector_return(self, period: int) -> float | None:
+        """이 종목이 속한 업종의 N일 중간값 수익률 (%). 업종 정보가 없으면 None.
+
+        평균이 아니라 중간값이다 — 업종에 급등주 하나가 섞이면 평균이 끌려간다.
+        """
+        if self._sector is None:
+            return None
+        return self._sector.median_return(period)
+
+    @property
+    def sector_name(self) -> str:
+        return self._sector.name if self._sector else ""
+
+    @property
+    def sector_size(self) -> int:
+        """같은 업종에 몇 종목이 있는지. 너무 적으면 비교가 의미 없다."""
+        return self._sector.size if self._sector else 0
 
     def benchmark_return(self, period: int) -> float | None:
         """비교 지수의 N일 수익률 (%). 지수를 안 받았으면 None.

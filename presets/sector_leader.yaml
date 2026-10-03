@@ -1,0 +1,65 @@
+name: 업종 주도주 — 오르는 업종에서 앞서 가는 종목
+market: kr
+universe: all
+description: 업종 자체가 지수보다 강하고, 그 안에서도 앞서 가는 종목. 업종 정보가 필요하다.
+requires: [profiles, flows]
+order: 13
+conditions:
+  # 1. 업종 자체가 지수보다 강한지 — 업종이 무너지는 와중에 혼자 버티는
+  #    종목을 고르지 않으려면 이걸 먼저 봐야 한다
+  - key: sector_strength
+    weight: 3.5
+    params: {period: 20, min_excess: 0.0}
+
+  # 2. 그 업종 안에서도 앞서 가는지 (업종 중간값 대비 +5%p)
+  - key: sector_relative_strength
+    weight: 3.5
+    params: {period: 20, min_excess: 5.0}
+
+  # 3. 지수 대비로도 강한지
+  - key: relative_strength
+    weight: 2.0
+    params: {period: 20, min_excess: 3.0}
+
+  # 4. 추세가 살아 있는지
+  - key: ma_alignment
+    weight: 2.0
+    params: {p1: 5, p2: 20, p3: 60, p4: 120}
+
+  # 5. 거래대금이 붙었는지
+  - key: turnover_surge
+    weight: 2.0
+    params: {mult: 1.5, period: 20}
+
+  - key: turnover_to_marcap
+    weight: 2.0
+    params: {min_pct: 1.0, period: 20}
+
+  # 6. 과열은 피한다
+  - key: disparity_range
+    weight: 1.5
+    params: {period: 20, low: 100.0, high: 120.0}
+
+  # ── 거를 것 ──────────────────────────────────────────────────
+
+  - key: turnover_value
+    weight: 1.5
+    params: {min_value: 30.0, period: 20}
+
+  - key: low_dilution
+    weight: 1.5
+    params: {max_pct: 5.0}
+
+  # ── 수급 ─────────────────────────────────────────────────────
+
+  - key: both_net_buy
+    weight: 2.5
+    params: {days: 5}
+
+  - key: net_buy_ratio
+    weight: 2.5
+    params: {who: both, days: 20, min_pct: 0.3}
+
+  - key: net_buy_value
+    weight: 2.0
+    params: {who: both, days: 20, min_value: 50.0}

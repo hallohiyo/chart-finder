@@ -41,6 +41,7 @@ class Ticker:
     market: str  # "kr" | "us"
     exchange: str = ""
     marcap: float | None = None  # 시가총액 (원/달러)
+    sector: str = ""  # 업종 (소스가 주는 경우만)
 
     @property
     def uid(self) -> str:
