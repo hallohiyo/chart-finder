@@ -157,6 +157,20 @@ class Ctx:
             ("boll", period, mult), lambda: ind.bollinger(self.close, period, mult)
         )
 
+    def supply_above(self, period: int = 252, bins: int = 40) -> float | None:
+        return self._memoized(
+            ("supply_above", period, bins),
+            lambda: ind.supply_above(self.df, period, bins),
+        )
+
+    def support_below(
+        self, period: int = 252, bins: int = 40, depth: float = 15.0
+    ) -> float | None:
+        return self._memoized(
+            ("support_below", period, bins, depth),
+            lambda: ind.support_below(self.df, period, bins, depth),
+        )
+
     def envelope_position(self, period: int = 20, pct: float = 20.0) -> pd.Series:
         return self._memoized(
             ("envpos", period, pct), lambda: ind.envelope_position(self.close, period, pct)

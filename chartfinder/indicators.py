@@ -86,6 +86,84 @@ def disparity(close: pd.Series, period: int = 20) -> pd.Series:
     return close / sma(close, period) * 100.0
 
 
+def volume_profile(
+    df: pd.DataFrame, period: int = 252, bins: int = 40
+) -> tuple[np.ndarray, np.ndarray]:
+    """매물대 — 가격대별로 거래량이 얼마나 쌓였는지.
+
+    (가격대 경계, 가격대별 거래량) 을 돌려준다. 경계는 bins+1 개다.
+
+    봉마다 거래량을 그 봉의 고가~저가 구간에 고르게 나눠 담는다. 종가에만
+    몰아 담으면 하루에 10% 움직인 봉의 물량이 한 점에 쌓여 매물대가 실제와
+    달라진다.
+    """
+    window = df.tail(period)
+    high = pd.to_numeric(window["high"], errors="coerce")
+    low = pd.to_numeric(window["low"], errors="coerce")
+    volume = pd.to_numeric(window["volume"], errors="coerce")
+    ok = high.notna() & low.notna() & volume.notna() & (volume > 0)
+    high, low, volume = high[ok], low[ok], volume[ok]
+    if high.empty:
+        return np.array([]), np.array([])
+
+    top, bottom = float(high.max()), float(low.min())
+    if top <= bottom:
+        return np.array([bottom, top]), np.array([float(volume.sum())])
+
+    edges = np.linspace(bottom, top, bins + 1)
+    profile = np.zeros(bins)
+    for h, l, v in zip(high.to_numpy(), low.to_numpy(), volume.to_numpy()):
+        # 이 봉이 걸친 가격대에 거래량을 면적 비율로 나눠 담는다
+        span = max(h - l, 1e-12)
+        overlap = np.clip(np.minimum(edges[1:], h) - np.maximum(edges[:-1], l), 0, None)
+        total = overlap.sum()
+        if total > 0:
+            profile += v * overlap / total
+        else:
+            # 고가=저가(상한가 등) 인 봉은 걸친 칸 하나에 전부 담는다
+            idx = min(int((h - bottom) / (top - bottom) * bins), bins - 1)
+            profile[idx] += v
+    return edges, profile
+
+
+def supply_above(df: pd.DataFrame, period: int = 252, bins: int = 40) -> float | None:
+    """현재가보다 위에서 거래된 물량의 비중 (%). 못 구하면 None.
+
+    52주 신고가를 돌파하면 위에서 거래된 적이 없으므로 0에 가까워진다.
+    위에 물량이 많으면 본전에 팔려는 매물이 그만큼 대기한다는 뜻이다.
+    """
+    edges, profile = volume_profile(df, period, bins)
+    if profile.size == 0:
+        return None
+    total = profile.sum()
+    if total <= 0:
+        return None
+    price = float(pd.to_numeric(df["close"], errors="coerce").iloc[-1])
+    # 칸의 중심이 현재가보다 높으면 '위에 쌓인 물량' 으로 센다
+    centers = (edges[:-1] + edges[1:]) / 2.0
+    return float(profile[centers > price].sum()) / float(total) * 100.0
+
+
+def support_below(
+    df: pd.DataFrame, period: int = 252, bins: int = 40, depth: float = 15.0
+) -> float | None:
+    """현재가 바로 아래(depth% 구간)에 쌓인 물량의 비중 (%). 못 구하면 None.
+
+    아래에 매물대가 두터우면 그 가격대에 산 사람이 많아 받쳐주는 힘이 된다.
+    """
+    edges, profile = volume_profile(df, period, bins)
+    if profile.size == 0:
+        return None
+    total = profile.sum()
+    if total <= 0:
+        return None
+    price = float(pd.to_numeric(df["close"], errors="coerce").iloc[-1])
+    floor_price = price * (1.0 - depth / 100.0)
+    centers = (edges[:-1] + edges[1:]) / 2.0
+    zone = (centers <= price) & (centers >= floor_price)
+    return float(profile[zone].sum()) / float(total) * 100.0
+
+
 def band_width(close: pd.Series, period: int = 20, mult: float = 2.0) -> pd.Series:
     """볼린저 밴드 폭을 중심선 대비 %로."""
     lower, mid, upper = bollinger(close, period, mult)

@@ -1,0 +1,60 @@
+name: 바닥 받침 — 아래에서 받쳐주는 종목
+market: kr
+universe: all
+description: 저점이 높아지고 아래쪽에 매물대가 두터운 종목. 떨어질 때 멈춰 줄 자리가 있다.
+requires: [profiles, flows]
+order: 19
+conditions:
+  # 1. 현재가 아래 15% 구간에 물량이 두터운지 — 그 가격대에 산 사람이 받쳐준다
+  - key: supply_support
+    weight: 4.0
+    params: {period: 252, depth: 15.0, min_pct: 30.0}
+
+  # 2. 저점이 차례로 높아지는지 — 바닥에서 받치고 올라오는 모습
+  - key: higher_lows
+    weight: 3.5
+    params: {period: 120, segments: 3}
+
+  # 3. 60일선 위 — 받침이 있어도 추세가 꺾였으면 계속 내려간다
+  - key: above_ma
+    weight: 2.5
+    params: {period: 60, margin: -3.0}
+
+  # 4. 5일선이 방향을 돌리는 중
+  - key: ma_turn_up
+    weight: 2.0
+    params: {period: 5, within: 3, confirm: 2}
+
+  # 5. 52주 범위의 중하단 — 이미 고점이면 '받침' 의 의미가 없다
+  - key: price_position
+    weight: 2.0
+    params: {period: 252, low: 10.0, high: 60.0}
+
+  # 6. 변동성이 적당한지
+  - key: atr_range
+    weight: 1.0
+    params: {period: 14, low: 2.0, high: 8.0}
+
+  # ── 거를 것 ──────────────────────────────────────────────────
+
+  - key: turnover_value
+    weight: 1.5
+    params: {min_value: 20.0, period: 20}
+
+  - key: low_dilution
+    weight: 1.5
+    params: {max_pct: 5.0}
+
+  # ── 수급 ─────────────────────────────────────────────────────
+
+  - key: both_net_buy
+    weight: 2.5
+    params: {days: 5}
+
+  - key: net_buy_ratio
+    weight: 2.5
+    params: {who: both, days: 20, min_pct: 0.3}
+
+  - key: net_buy_value
+    weight: 2.0
+    params: {who: both, days: 20, min_value: 50.0}

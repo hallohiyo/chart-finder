@@ -1413,3 +1413,68 @@ def operating_margin_improving(ctx: Ctx, years: int, min_step: float) -> float:
         for before, after in zip(series[:-1], series[1:])
     ]
     return sum(steps) / len(steps) if steps else 0.0
+
+
+# --------------------------------------------------------------------------- 매물대
+#
+# 가격대별로 거래량이 얼마나 쌓였는지를 본다. 봉마다 거래량을 그 봉의
+# 고가~저가 구간에 고르게 나눠 담아 계산한다 (종가에만 몰아 담으면 하루에
+# 10% 움직인 봉의 물량이 한 점에 쌓여 매물대가 실제와 달라진다).
+
+
+@condition(
+    "no_overhead_supply", "위쪽 매물 없음", POSITION,
+    params=(
+        _p("period", "기준 일수", default=252, min=60, max=1000),
+        _p("max_pct", "위쪽 물량 최대 (%)", "float", default=3.0, min=0.0, max=100.0, step=1.0),
+    ),
+    description="현재가보다 위에서 거래된 물량의 비중. 52주 신고가를 돌파하면 "
+                "위에서 거래된 적이 없어 0에 가까워진다. 위에 물량이 많으면 "
+                "본전에 팔려는 매물이 그만큼 대기한다.",
+    min_bars=60,
+)
+def no_overhead_supply(ctx: Ctx, period: int, max_pct: float) -> float:
+    above = ctx.supply_above(period)
+    if above is None:
+        return 0.0
+    return soft_lt(above, max_pct, tol=max(max_pct, 2.0))
+
+
+@condition(
+    "supply_support", "아래쪽 받침 물량", POSITION,
+    params=(
+        _p("period", "기준 일수", default=252, min=60, max=1000),
+        _p("depth", "아래로 볼 구간 (%)", "float", default=15.0, min=1.0, max=50.0, step=1.0),
+        _p("min_pct", "받침 물량 최소 (%)", "float",
+           default=25.0, min=0.0, max=100.0, step=5.0),
+    ),
+    description="현재가 바로 아래 구간에 쌓인 물량의 비중. 그 가격대에 산 사람이 "
+                "많으면 받쳐주는 힘이 된다. 아래가 비어 있으면 떨어질 때 "
+                "멈춰 줄 자리가 없다.",
+    min_bars=60,
+)
+def supply_support(ctx: Ctx, period: int, depth: float, min_pct: float) -> float:
+    below = ctx.support_below(period, depth=depth)
+    if below is None:
+        return 0.0
+    return soft_gt(below, min_pct, tol=max(min_pct * 0.5, 5.0))
+
+
+@condition(
+    "higher_lows", "저점 높아짐", PATTERN,
+    params=(
+        _p("period", "기준 일수", default=120, min=20, max=500),
+        _p("segments", "나눠 볼 구간 수", default=3, min=2, max=10),
+    ),
+    description="기간을 N등분해 각 구간의 최저가가 차례로 높아지는지. "
+                "바닥에서 받치고 올라오는 모습이다. 일부만 높아지면 그 비율.",
+    min_bars=40,
+)
+def higher_lows(ctx: Ctx, period: int, segments: int) -> float:
+    window = ctx.low.dropna().tail(period)
+    if len(window) < segments * 5:
+        return 0.0
+    size = len(window) // segments
+    lows = [float(window.iloc[i * size : (i + 1) * size].min()) for i in range(segments)]
+    steps = [1.0 if after > before else 0.0 for before, after in zip(lows[:-1], lows[1:])]
+    return sum(steps) / len(steps) if steps else 0.0
