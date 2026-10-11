@@ -202,25 +202,55 @@ export async function mapToKorean(fetchImpl, enTitles, onProgress = () => {}) {
 
 /** 한국어 문서마다 짧은 설명(위키데이터 설명)을 붙인다. 임베딩 문장을 풍부하게 하려는 용도 */
 export async function addKoreanDescriptions(fetchImpl, topics, onProgress = () => {}) {
+  await fillFromKoreanPages(fetchImpl, topics, BATCH, { prop: 'description' }, (t, p) => {
+    if (p.description) t.description = p.description;
+  }, onProgress);
+  return topics;
+}
+
+const EXTRACT_BATCH = 20; // prop=extracts 의 exintro 는 한 번에 20개까지
+const EXTRACT_MAX_CHARS = 120;
+
+/**
+ * 짧은 설명이 없는 주제에 문서 첫 문장을 붙인다.
+ * 설명 없이 제목만 임베딩하면 짧은 영상 제목과 "형식"이 닮아서, 뜻과 상관없이 가깝게 나온다
+ * (실제로 "바가바드 기타", "가우스 소거법"이 여러 관심사 추천에 계속 끼어들었다).
+ */
+export async function addKoreanExtracts(fetchImpl, topics, onProgress = () => {}) {
+  const missing = topics.filter((t) => !t.description);
+  await fillFromKoreanPages(
+    fetchImpl,
+    missing,
+    EXTRACT_BATCH,
+    { prop: 'extracts', exintro: '1', explaintext: '1', exsentences: '1', exlimit: String(EXTRACT_BATCH) },
+    (t, p) => {
+      const text = (p.extract ?? '').replace(/\s+/g, ' ').trim();
+      if (text) t.description = text.length > EXTRACT_MAX_CHARS ? `${text.slice(0, EXTRACT_MAX_CHARS)}…` : text;
+    },
+    onProgress,
+  );
+  return topics;
+}
+
+/** 한국어 문서 정보를 batch 개씩 조회해 apply(topic, page) 로 채운다. 정규화·넘겨주기된 제목도 원래 주제에 맞춘다 */
+async function fillFromKoreanPages(fetchImpl, topics, batchSize, params, apply, onProgress) {
   const byTitle = new Map(topics.map((t) => [t.title, t]));
-  for (let i = 0; i < topics.length; i += BATCH) {
-    const batch = topics.slice(i, i + BATCH);
+  for (let i = 0; i < topics.length; i += batchSize) {
+    const batch = topics.slice(i, i + batchSize);
     const body = await getJson(
       fetchImpl,
-      apiUrl(KO_API, { action: 'query', prop: 'description', redirects: '1', titles: batch.map((t) => t.title).join('|') }),
+      apiUrl(KO_API, { action: 'query', redirects: '1', ...params, titles: batch.map((t) => t.title).join('|') }),
     );
-    // 정규화/넘겨주기로 제목이 바뀐 경우 원래 제목으로 되돌려 찾는다
     const renamed = new Map();
     for (const r of [...(body.query?.normalized ?? []), ...(body.query?.redirects ?? [])]) renamed.set(r.to, r.from);
     for (const p of body.query?.pages ?? []) {
       let title = p.title;
       while (!byTitle.has(title) && renamed.has(title)) title = renamed.get(title);
       const t = byTitle.get(title);
-      if (t && p.description) t.description = p.description;
+      if (t) apply(t, p);
     }
-    onProgress({ done: Math.min(i + BATCH, topics.length), total: topics.length });
+    onProgress({ done: Math.min(i + batchSize, topics.length), total: topics.length });
   }
-  return topics;
 }
 
 /** 팝업에 보여줄 요약과 링크 */

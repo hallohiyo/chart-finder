@@ -81,3 +81,19 @@ test('중심화: 모든 주제가 공유하는 방향을 빼서, 뜻이 다른 �
   assert.ok(dot(video, index.vectors, 0) > 0.99);
   assert.ok(Math.abs(Math.hypot(...video) - 1) < 1e-6);
 });
+
+test('설명이 없는 주제는 문서 첫 문장으로 채우고, 그것도 없으면 뺀다', async () => {
+  const links = Array.from({ length: 150 }, (_, i) => ({ ns: 0, title: `Topic ${i}` }));
+  const langlinks = Object.fromEntries(links.map((l, i) => [l.title, `주제${i}`]));
+  const descriptions = Object.fromEntries(links.map((_, i) => [`주제${i}`, i % 3 ? `설명 ${i}` : undefined]).filter(([, d]) => d));
+  const extracts = Object.fromEntries(links.map((_, i) => [`주제${i}`, i % 6 === 0 ? `주제${i}는 아주 긴 첫 문장입니다. ${'가'.repeat(200)}` : undefined]).filter(([, d]) => d));
+  const { impl } = fakeWikiFetch({ vital: { [ROOT]: [{ ns: 4, title: `${ROOT}/Arts` }], [`${ROOT}/Arts`]: links }, langlinks, descriptions, extracts });
+  const logs = [];
+  const { topics } = await buildTopicData({ fetchImpl: impl, embedTexts: fakeEmbed, dim: FAKE_DIM, model: 'fake', log: (m) => logs.push(m) });
+  assert.equal(topics.length, 125, '설명 100 + 첫 문장 25, 둘 다 없는 25개는 뺌');
+  assert.ok(topics.every((t) => t.description));
+  const filled = topics.find((t) => t.title === '주제0');
+  assert.ok(filled.description.startsWith('주제0는 아주 긴 첫 문장입니다.'));
+  assert.ok(filled.description.length <= 121, '첫 문장은 120자까지');
+  assert.ok(logs.some((l) => l.includes('뺀 주제 25개')));
+});

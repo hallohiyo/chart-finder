@@ -70,7 +70,7 @@ export function videos(titles, { now = Date.now(), prefix = 'v' } = {}) {
  * 가짜 MediaWiki API. 실제 응답 모양(formatversion=2)을 흉내 낸다.
  * vital: 페이지 → 링크, redirects: 넘겨주기, categories: 분류 → 구성원
  */
-export function fakeWikiFetch({ vital = {}, redirects = {}, categories = {}, langlinks = {}, descriptions = {}, summaries = {} }) {
+export function fakeWikiFetch({ vital = {}, redirects = {}, categories = {}, langlinks = {}, descriptions = {}, extracts = {}, summaries = {} }) {
   const calls = [];
   const json = (body, ok = true) => ({ ok, status: ok ? 200 : 500, json: async () => body });
   const impl = async (url) => {
@@ -99,6 +99,10 @@ export function fakeWikiFetch({ vital = {}, redirects = {}, categories = {}, lan
           pages: titles.map((t) => ({ title: t, ...(langlinks[t] ? { langlinks: [{ lang: 'ko', title: langlinks[t] }] } : {}) })),
         },
       });
+    }
+    if (p.get('prop') === 'extracts') {
+      if (titles.length > 20) throw new Error('exintro allows 20 titles');
+      return json({ query: { pages: titles.map((t) => ({ title: t, ...(extracts[t] ? { extract: extracts[t] } : {}) })) } });
     }
     if (p.get('prop') === 'description') {
       return json({ query: { pages: titles.map((t) => ({ title: t, ...(descriptions[t] ? { description: descriptions[t] } : {}) })) } });
