@@ -12,10 +12,8 @@
    npm run build        # extension/vendor/ 생성
    ```
 2. `chrome://extensions` → 우측 상단 **개발자 모드** 켜기 → **압축해제된 확장 프로그램을 로드합니다** → `extension/` 폴더 선택
-3. 로드하면 설정 페이지가 열리고, 백그라운드에서 **첫 준비**가 시작됩니다 (한 번만, 몇 분):
-   - 위키백과에서 추천 주제 목록 받기
-   - 분석 모델(약 120MB) 내려받기
-   - 주제 수천 개를 모델로 분석해 저장
+3. 로드하면 설정 페이지가 열리고, 백그라운드에서 **분석 모델(약 120MB)을 한 번 내려받습니다.**
+   추천 주제 목록과 주제 분석 결과는 확장 프로그램에 들어 있어서 따로 받지 않아요.
 4. 선택 사항:
    - **지난 시청 기록 가져오기**: 크롬 방문 기록에서 최근 90일 `youtube.com/watch` 주소만 골라 가져와 바로 시작
    - **YouTube Data API 키**: 태그까지 분석에 써서 더 정확해짐 (없으면 제목만 사용)
@@ -64,7 +62,9 @@ youtube.com/watch 15초 이상 시청 → 영상 ID + 제목 저장
 - **거리는 순위로 잽니다.** 유사도 숫자는 모델마다 범위가 달라서, "가까운 순으로 상위 몇 %"를 목표로 삼습니다.
 - **반응**: 재밌어요 → 목표를 30% 더 멀리 / 별로예요 → 30% 더 가까이 (0.3%~30% 사이). 별로예요 받은 주제와 거의 같은 주제는 점수가 깎입니다.
 - 최근 90일 안에 추천한 주제, 별로예요 받은 주제는 다시 나오지 않습니다.
-- 서비스 워커가 중간에 꺼져도 준비 작업은 저장된 지점부터 이어서 합니다.
+- 주제 목록과 주제 벡터는 **미리 만들어 내장**합니다 (`extension/data/`). 위키백과·Hugging Face 접속이 필요해서
+  GitHub Actions가 만듭니다 (`.github/workflows/build-topics.yml` → `scripts/build-topics.mjs`).
+  만들 때 가상의 시청 기록으로 뽑아 본 추천을 [docs/topic-report.md](docs/topic-report.md)에 남깁니다.
 
 ## 개인정보 & 웹스토어 정책
 
@@ -80,14 +80,17 @@ youtube.com/watch 15초 이상 시청 → 영상 ID + 제목 저장
 ```
 extension/
   manifest.json
+  data/                  내장 주제 목록 + 주제 벡터 (GitHub Actions 가 생성)
   vendor/                Transformers.js + ONNX Runtime wasm 번들 (npm run build 로 생성, git 에는 없음)
   src/
     background.js        서비스 워커: 메시지 라우팅, 알람, 기록 가져오기, 준비 작업 재개
     content.js           youtube.com 시청 감지 (15초 체류 후 ID+제목 전송)
     lib/
-      wiki.js            Vital articles 목록, 한국어 문서 연결, 설명·요약 조회
+      wiki.js            Vital articles 목록·한국어 문서 연결(빌드용), 요약 조회(실행 중)
       embedder.js        multilingual-e5-small 실행 (Transformers.js)
-      engine.js          주제 목록 만들기(이어하기 지원), 영상 벡터 캐시
+      engine.js          내장 주제 데이터 읽기, 모델 준비, 영상 벡터 캐시
+      bundled-data.js    extension/data/ 읽기
+      quantize.js        주제 벡터 int8 압축/복원
       interest-map.js    가중 k-means 관심 묶음
       recommender.js     순위 기반 "살짝 빗나간" 선택, 반응 반영
       service.js         하루 추천 한도/상태 관리 (chrome 비의존, 테스트 가능)
@@ -95,7 +98,10 @@ extension/
       idb.js             IndexedDB (주제 벡터 저장)
       youtube.js         URL 파싱, Data API 조회
   popup/                 오늘의 추천 + 반응 버튼
-  options/               설정, 주제 목록 상태, 관심 묶음, 기록 가져오기, 데이터 삭제
+  options/               설정, 모델 상태, 관심 묶음, 저장된 영상, 기록 가져오기, 데이터 삭제
+scripts/
+  build.mjs              Transformers.js 번들 (npm run build)
+  build-topics.mjs       내장 주제 데이터 만들기 (GitHub Actions)
 tests/                   단위 테스트 + e2e/ (가짜 모델·위키백과로 실제 Chromium 실행)
 ```
 

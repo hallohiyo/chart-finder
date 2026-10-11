@@ -4,7 +4,10 @@
 const { chromium } = require('playwright');
 const fs = require('fs');
 const path = require('path');
-const ext = path.resolve(__dirname, '../../extension');
+const os = require('os');
+// 실제 확장 폴더를 임시 폴더로 복사하고, 내장 데이터만 가짜로 바꿔 넣는다 (진짜 데이터 파일은 건드리지 않는다)
+const ext = fs.mkdtempSync(path.join(os.tmpdir(), 'slightly-off-e2e-'));
+fs.cpSync(path.resolve(__dirname, '../../extension'), ext, { recursive: true });
 const OUT = process.env.E2E_OUT ?? __dirname;
 const MODEL_DIR = path.join(__dirname, 'fakemodel');
 const words = '재즈 피아노 연주 기타 코드 진행 밴드 라이브 공연 힙합 앨범 감상 클래식 오케스트라 드럼 영상 음악 음향 물리 요리 역사 수학 화학 건축'.split(' ');
@@ -13,7 +16,20 @@ const ROOT = 'Wikipedia:Vital articles/Level/4';
 const desc = (i) => `${words[i % words.length]} ${words[(i * 7) % words.length]} ${words[(i * 5 + 3) % words.length]}`;
 const counts = { hf: 0, wiki: 0, other: [] };
 
+function writeFakeData() {
+  const DIM = 384;
+  let seed = 1;
+  const rand = () => ((seed = (seed * 16807) % 2147483647) / 2147483647) * 2 - 1;
+  const topics = Array.from({ length: N }, (_, i) => ({ id: `Topic ${i}`, title: `주제${i}`, description: desc(i) }));
+  const scales = new Float32Array(N).fill(1 / 127);
+  const data = new Int8Array(N * DIM).map(() => Math.round(rand() * 127));
+  fs.mkdirSync(path.join(ext, 'data'), { recursive: true });
+  fs.writeFileSync(path.join(ext, 'data/topics.json'), JSON.stringify({ meta: { version: 1, builtAt: new Date().toISOString(), count: N, dim: DIM, diagnostics: 'e2e' }, topics }));
+  fs.writeFileSync(path.join(ext, 'data/topic-vectors.bin'), Buffer.concat([Buffer.from(scales.buffer), Buffer.from(data.buffer)]));
+}
+
 (async () => {
+  writeFakeData();
   const ctx = await chromium.launchPersistentContext('', {
     channel: 'chromium', headless: true,
     args: [`--disable-extensions-except=${ext}`, `--load-extension=${ext}`],

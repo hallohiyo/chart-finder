@@ -10,7 +10,7 @@ export const MIN_VIDEOS = 5;
 
 /**
  * @param store   createStore 결과
- * @param engine  createEngine 결과 (loadIndex, ensureIndex, embedVideos ...)
+ * @param engine  createEngine 결과 (loadIndex, warmUp, embedVideos ...)
  * @param opts.fetchSummary (koTitle) => Promise<{extract, url}>
  */
 export function createService(store, engine, { fetchImpl = fetch, fetchSummary, now = () => Date.now() } = {}) {
@@ -78,10 +78,20 @@ export function createService(store, engine, { fetchImpl = fetch, fetchSummary, 
 
     if (titled(await store.getVideos()).length < MIN_VIDEOS) return view(dateKey, { status: 'collecting' });
 
-    if (!(await engine.loadIndex())) {
-      // 주제 목록이 아직 없으면 만들기 시작만 하고 바로 돌아간다 (진행 상황은 indexStatus 로 보여준다)
-      engine.ensureIndex().catch(() => {});
-      return view(dateKey, { status: 'preparing' });
+    if (!engine.isModelReady()) {
+      const prepared = (await store.getIndexStatus()).phase === 'ready';
+      if (prepared) {
+        // 예전에 내려받은 모델이면 캐시에서 금방 읽는다
+        try {
+          await engine.warmUp();
+        } catch (err) {
+          return view(dateKey, { status: 'error', error: err.message });
+        }
+      } else {
+        // 처음이면 내려받기만 시작하고 바로 돌아간다 (진행 상황은 indexStatus 로 보여준다)
+        engine.warmUp().catch(() => {});
+        return view(dateKey, { status: 'preparing' });
+      }
     }
 
     try {
@@ -169,10 +179,18 @@ export function createService(store, engine, { fetchImpl = fetch, fetchSummary, 
         store.getIndexStatus(),
       ]);
       const all = Object.values(videos);
-      const index = await engine.loadIndex();
+      let index = null;
+      let indexError = null;
+      try {
+        index = await engine.loadIndex();
+      } catch (err) {
+        indexError = err.message;
+      }
+      // 예전에 받아 둔 모델이면 캐시에서 읽어 관심 묶음을 보여준다 (처음 내려받기는 여기서 시작하지 않는다)
+      if (index && !engine.isModelReady() && indexStatus.phase === 'ready') await engine.warmUp().catch(() => {});
       let clusters = [];
       // 모델이 준비된 뒤에만 관심 묶음을 계산한다 (설정 페이지를 열었다고 모델을 받기 시작하지 않도록)
-      if (index && all.length) {
+      if (index && engine.isModelReady() && all.length) {
         const list = titled(videos);
         const map = buildInterestMap(list, await engine.embedVideos(list), now());
         clusters = map.clusters.map((c) => ({ weight: Math.round(c.weight * 100), size: c.size, examples: c.examples }));
@@ -187,6 +205,9 @@ export function createService(store, engine, { fetchImpl = fetch, fetchSummary, 
           .map((v) => ({ id: v.id, title: v.title || '(제목 없음)', lastSeen: v.lastSeen, count: v.count })),
         pendingCount: all.filter((v) => !v.enriched).length,
         topicCount: index?.topics.length ?? 0,
+        topicsBuiltAt: index?.meta?.builtAt ?? null,
+        modelReady: engine.isModelReady(),
+        indexError,
         indexStatus,
         clusters,
         targetRank: prefs.targetRank,

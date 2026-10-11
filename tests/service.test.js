@@ -5,6 +5,8 @@ import { createService, MIN_VIDEOS } from '../extension/src/lib/service.js';
 import { parseWatchUrl, cleanPageTitle, fetchVideoMetadata } from '../extension/src/lib/youtube.js';
 import { fetchSummary } from '../extension/src/lib/wiki.js';
 import { createEngine } from '../extension/src/lib/engine.js';
+import { buildTopicData } from '../scripts/topic-data.mjs';
+import { decodeVectors } from '../extension/src/lib/quantize.js';
 import { memoryStorage, memoryKv, fakeEmbed, fakeWikiFetch, FAKE_DIM } from './helpers.js';
 
 const ROOT = 'Wikipedia:Vital articles/Level/4';
@@ -31,12 +33,20 @@ function wiki() {
   });
 }
 
+let bundledPromise = null;
+function bundledData() {
+  bundledPromise ??= buildTopicData({ fetchImpl: wiki().impl, embedTexts: fakeEmbed, dim: FAKE_DIM, model: 'fake' }).then(
+    ({ meta, topics, vectorBytes }) => ({ meta, topics, vectors: decodeVectors(vectorBytes, meta.count, meta.dim) }),
+  );
+  return bundledPromise;
+}
+
 function setup(startAt = Date.parse('2026-10-11T09:00:00')) {
   const storage = memoryStorage();
   const store = createStore(storage);
   const clock = { t: startAt };
   const { impl } = wiki();
-  const engine = createEngine({ kv: memoryKv(), fetchImpl: impl, embedTexts: fakeEmbed, dim: FAKE_DIM, onStatus: (s) => store.setIndexStatus(s) });
+  const engine = createEngine({ kv: memoryKv(), loadBundled: bundledData, embedTexts: fakeEmbed, onStatus: (s) => store.setIndexStatus(s) });
   const service = createService(store, engine, {
     now: () => clock.t,
     fetchImpl: () => assert.fail('network not expected'),
@@ -47,7 +57,7 @@ function setup(startAt = Date.parse('2026-10-11T09:00:00')) {
 
 async function ready(service, engine, clock) {
   await watchAll(service, MUSIC_TITLES, clock);
-  await engine.ensureIndex();
+  await engine.warmUp();
 }
 
 async function watchAll(service, titles, clock) {
@@ -77,16 +87,22 @@ test('기록이 부족하면 수집 중 상태를 알려준다', async () => {
   assert.equal(today.videoCount, MIN_VIDEOS - 1);
 });
 
-test('주제 목록이 없으면 준비 상태를 보여주고 만들기 시작한다', async () => {
+test('모델을 처음 받을 땐 준비 상태를 보여주고 내려받기를 시작한다', async () => {
   const { service, engine, clock } = setup();
   await watchAll(service, MUSIC_TITLES, clock);
   const first = await service.getToday();
   assert.equal(first.status, 'preparing');
-  assert.ok(engine.isBuilding(), '목록 만들기가 시작됨');
-  await engine.ensureIndex();
+  await engine.warmUp();
   const after = await service.getToday();
   assert.equal(after.status, 'ready');
   assert.equal(after.indexStatus.phase, 'ready');
+});
+
+test('예전에 받아 둔 모델이면 (서비스 워커가 다시 켜져도) 기다렸다가 바로 추천한다', async () => {
+  const { service, store, clock } = setup();
+  await watchAll(service, MUSIC_TITLES, clock);
+  await store.setIndexStatus({ phase: 'ready' });
+  assert.equal((await service.getToday()).status, 'ready');
 });
 
 test('추천에는 요약과 위키백과·유튜브 링크가 붙고, 연결 이유는 없다', async () => {
@@ -167,6 +183,7 @@ test('설정 페이지 개요: 주제 수와 관심 묶음 예시 영상', async
   const o = await service.overview();
   assert.equal(o.settings.apiKey, '••••1234');
   assert.equal(o.topicCount, 300);
+  assert.equal(o.modelReady, true);
   assert.equal(o.recentVideos.length, MUSIC_TITLES.length);
   assert.equal(o.recentVideos[0].title, MUSIC_TITLES.at(-1), '최근 본 순서');
   assert.ok(o.clusters.length >= 1);

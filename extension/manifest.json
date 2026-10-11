@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "살짝 빗나간 추천",
   "short_name": "살짝 빗나간",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "유튜브 시청 기록으로 관심사를 파악하고, 평소엔 안 보지만 관심사와 이어지는 주제를 하루 하나씩 추천합니다. 데이터는 내 브라우저에만 저장됩니다.",
   "minimum_chrome_version": "120",
   "permissions": [
@@ -15,7 +15,6 @@
   ],
   "host_permissions": [
     "https://www.googleapis.com/youtube/v3/*",
-    "https://en.wikipedia.org/w/api.php*",
     "https://ko.wikipedia.org/*",
     "https://huggingface.co/*",
     "https://*.huggingface.co/*",

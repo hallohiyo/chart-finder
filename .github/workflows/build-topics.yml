@@ -1,0 +1,46 @@
+# 내장 주제 데이터(extension/data/)를 만든다. 위키백과·Hugging Face 접속이 필요해서 GitHub 서버에서 돌린다.
+name: Build topic data
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ccr-49c50553-q4u3dp]
+    paths:
+      - scripts/build-topics.mjs
+      - scripts/topic-data.mjs
+      - scripts/topic-report.mjs
+      - extension/src/lib/wiki.js
+      - extension/src/lib/quantize.js
+      - extension/src/lib/recommender.js
+      - extension/src/lib/interest-map.js
+      - .github/workflows/build-topics.yml
+
+permissions:
+  contents: write
+
+concurrency:
+  group: build-topics-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      # 여기서는 install 스크립트를 돌려야 Node 용 ONNX Runtime 이 설치된다
+      - run: npm ci
+      - run: node scripts/build-topics.mjs
+      - name: Commit data
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add extension/data docs/topic-report.md
+          if git diff --cached --quiet; then echo "no changes"; exit 0; fi
+          git commit -m "Update bundled topic data"
+          git pull --rebase origin "${GITHUB_REF_NAME}"
+          git push origin "HEAD:${GITHUB_REF_NAME}"

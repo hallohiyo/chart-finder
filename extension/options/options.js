@@ -37,18 +37,21 @@ function render(overview) {
     }),
   );
 
+  $('topic-status').textContent = overview.topicCount
+    ? `내장된 주제 ${overview.topicCount}개 (${new Date(overview.topicsBuiltAt).toLocaleDateString('ko-KR')} 위키백과 기준)`
+    : overview.indexError ?? '내장된 주제 데이터를 읽지 못했어요.';
   const { text, progress } = describeIndexStatus(overview.indexStatus);
-  $('index-status').textContent = overview.topicCount ? `주제 ${overview.topicCount}개 준비 완료` : text;
+  $('index-status').textContent = overview.modelReady ? '분석 모델 준비 완료' : text;
   const bar = $('index-progress');
-  bar.hidden = overview.topicCount > 0 || progress == null;
+  bar.hidden = overview.modelReady || progress == null;
   bar.querySelector('.progress-bar').style.setProperty('--p', `${Math.round((progress ?? 0) * 100)}%`);
-  if (!overview.topicCount && overview.indexStatus?.phase !== 'error') pollSoon();
+  if (!overview.modelReady && overview.indexStatus?.phase !== 'error' && overview.indexStatus?.phase !== 'ready') pollSoon();
 
   $('map-summary').textContent = overview.clusters.length
     ? `저장된 영상 ${overview.videoCount}개를 비슷한 것끼리 묶었어요.`
-    : overview.topicCount
+    : overview.modelReady
       ? `아직 분석할 영상이 없어요 (저장된 영상 ${overview.videoCount}개).`
-      : `주제 목록이 준비되면 보여드릴게요 (저장된 영상 ${overview.videoCount}개).`;
+      : `분석 모델이 준비되면 보여드릴게요 (저장된 영상 ${overview.videoCount}개). 팝업을 한 번 열면 준비가 시작돼요.`;
 
   $('clusters').replaceChildren(
     ...overview.clusters.map((c) => {
@@ -125,15 +128,6 @@ $('import').addEventListener('click', async () => {
   } finally {
     await chrome.permissions.remove({ permissions: ['history'] });
     refresh();
-  }
-});
-
-$('rebuild').addEventListener('click', async () => {
-  if (!confirm('위키백과에서 주제 목록을 다시 받고 분석할까요? 몇 분 걸려요.')) return;
-  try {
-    render(await send('rebuildIndex'));
-  } catch (err) {
-    $('index-status').textContent = err.message;
   }
 });
 

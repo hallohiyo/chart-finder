@@ -1,8 +1,9 @@
 import { createStore } from './lib/store.js';
 import { createService } from './lib/service.js';
 import { createEngine } from './lib/engine.js';
-import { embedTexts, DIM } from './lib/embedder.js';
+import { embedTexts } from './lib/embedder.js';
 import { idbKv } from './lib/idb.js';
+import { loadBundledTopics } from './lib/bundled-data.js';
 import { fetchSummary } from './lib/wiki.js';
 import { parseWatchUrl, cleanPageTitle } from './lib/youtube.js';
 
@@ -12,9 +13,8 @@ const YOUTUBE_ORIGIN = 'https://www.youtube.com';
 const store = createStore(chrome.storage.local);
 const engine = createEngine({
   kv: idbKv,
-  fetchImpl: (...args) => fetch(...args),
+  loadBundled: () => loadBundledTopics(),
   embedTexts,
-  dim: DIM,
   onStatus: throttledStatus(),
 });
 const service = createService(store, engine, { fetchSummary: (title) => fetchSummary(fetch, title) });
@@ -31,24 +31,22 @@ function throttledStatus() {
   };
 }
 
-/** 주제 목록이 아직 없으면 만들기 시작한다. 서비스 워커가 중간에 꺼져도 다음 호출 때 이어서 한다 */
-async function resumeIndex() {
-  if (engine.isBuilding() || (await engine.loadIndex())) return;
-  engine.ensureIndex().catch((err) => console.warn('[살짝 빗나간] 주제 목록 준비 실패:', err.message));
+/** 분석 모델을 미리 불러 둔다 (처음엔 내려받기). 서비스 워커가 중간에 꺼지면 다음 알람 때 다시 한다 */
+function warmUp() {
+  engine.warmUp().catch((err) => console.warn('[살짝 빗나간] 모델 준비 실패:', err.message));
 }
 
 chrome.runtime.onInstalled.addListener(({ reason }) => {
   chrome.alarms.create('enrich', { periodInMinutes: 60 });
   chrome.alarms.create('index', { periodInMinutes: 5 });
   if (reason === 'install') chrome.runtime.openOptionsPage();
-  resumeIndex();
+  warmUp();
 });
-
-chrome.runtime.onStartup.addListener(resumeIndex);
 
 chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name === 'enrich' || alarm.name === 'enrich-soon') enrich();
-  if (alarm.name === 'index') resumeIndex();
+  // 아직 한 번도 모델을 못 받았으면 다시 시도한다 (받아 둔 뒤엔 팝업을 열 때 캐시에서 읽는다)
+  if (alarm.name === 'index') store.getIndexStatus().then((s) => s.phase !== 'ready' && warmUp());
 });
 
 async function enrich() {
@@ -101,11 +99,6 @@ async function handle(msg, sender) {
       return enrich();
     case 'importHistory':
       return importHistory();
-    case 'rebuildIndex':
-      if (engine.isBuilding()) throw new Error('이미 주제 목록을 만드는 중이에요.');
-      await engine.resetIndex();
-      resumeIndex();
-      return service.overview();
     case 'clearData':
       await store.clearData();
       await engine.clearVideoVectors();
