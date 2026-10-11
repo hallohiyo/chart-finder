@@ -31,13 +31,42 @@ function apiUrl(base, params) {
   return `${base}?${q}`;
 }
 
-async function getJson(fetchImpl, url) {
-  const res = await fetchImpl(url, { headers: { 'Api-User-Agent': 'slightly-off-recommender/0.2 (personal Chrome extension)' } });
-  if (!res.ok) throw new Error(`위키백과 요청 실패 (${res.status})`);
-  const body = await res.json();
-  if (body.error) throw new Error(`위키백과 API 오류: ${body.error.info ?? body.error.code}`);
-  return body;
+const RETRIES = 6;
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+/** 429(요청 과다)·5xx 는 잠깐 쉬었다 다시 시도한다. Retry-After 가 있으면 그만큼 기다린다 */
+async function getJson(fetchImpl, url, { wait = sleep } = {}) {
+  for (let attempt = 0; ; attempt++) {
+    const res = await fetchImpl(url, { headers: { 'Api-User-Agent': 'slightly-off-recommender/0.2 (personal Chrome extension)' } });
+    if (res.ok) {
+      const body = await res.json();
+      if (body.error?.code === 'maxlag' && attempt < RETRIES) {
+        await wait(5000);
+        continue;
+      }
+      if (body.error) throw new Error(`위키백과 API 오류: ${body.error.info ?? body.error.code}`);
+      return body;
+    }
+    const retryable = res.status === 429 || res.status >= 500;
+    if (!retryable || attempt >= RETRIES) throw new Error(`위키백과 요청 실패 (${res.status})`);
+    const after = Number(res.headers?.get?.('retry-after'));
+    await wait(Number.isFinite(after) && after > 0 ? after * 1000 : 2000 * 2 ** attempt);
+  }
 }
+
+/** 빌드 스크립트용: 요청 사이에 최소 간격을 둔다 (위키미디어 API 예절) */
+export function paced(fetchImpl, minGapMs) {
+  let next = 0;
+  return async (url, init) => {
+    const now = Date.now();
+    const at = Math.max(now, next);
+    next = at + minGapMs;
+    if (at > now) await sleep(at - now);
+    return fetchImpl(url, init);
+  };
+}
+
+export const _test = { getJson };
 
 /** action=query 를 continue 토큰이 없어질 때까지 반복한다. key: query 안에서 모을 배열 이름 */
 async function queryAll(fetchImpl, base, params, key = 'pages') {

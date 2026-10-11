@@ -7,6 +7,7 @@ import { pipeline } from '@huggingface/transformers';
 import { buildTopicData } from './topic-data.mjs';
 import { buildReport } from './topic-report.mjs';
 import { decodeVectors } from '../extension/src/lib/quantize.js';
+import { paced } from '../extension/src/lib/wiki.js';
 
 // 확장 프로그램(extension/src/lib/embedder.js)과 반드시 같은 모델·설정이어야 벡터가 서로 비교된다.
 const MODEL_ID = 'Xenova/multilingual-e5-small';
@@ -15,7 +16,8 @@ const DIM = 384;
 
 // 위키미디어는 브라우저가 아닌 요청에 연락처가 담긴 User-Agent 를 요구한다
 const USER_AGENT = 'slightly-off-recommender-build/0.3 (https://github.com/hallohiyo/chart-finder)';
-const fetchImpl = (url, init = {}) => fetch(url, { ...init, headers: { ...init.headers, 'User-Agent': USER_AGENT } });
+// 요청 사이 최소 0.2초: 위키백과가 너무 빠른 연속 요청을 429 로 막는다 (한 번 막혔다)
+const fetchImpl = paced((url, init = {}) => fetch(url, { ...init, headers: { ...init.headers, 'User-Agent': USER_AGENT } }), 200);
 
 const log = (msg) => console.log(`[${new Date().toISOString().slice(11, 19)}] ${msg}`);
 

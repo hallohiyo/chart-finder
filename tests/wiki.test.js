@@ -80,3 +80,24 @@ test('요약을 못 받아도 위키백과 링크는 준다', async () => {
   assert.equal(missing.extract, '');
   assert.equal(missing.url, 'https://ko.wikipedia.org/wiki/%EC%97%86%EB%8A%94_%EB%AC%B8%EC%84%9C');
 });
+
+test('429·5xx 는 기다렸다 다시 시도하고, 계속 실패하면 상태 코드와 함께 알린다', async () => {
+  const { getJson } = (await import('../extension/src/lib/wiki.js'))._test;
+  const waits = [];
+  const wait = async (ms) => void waits.push(ms);
+  let n = 0;
+  const flaky = async () => {
+    n++;
+    if (n === 1) return { ok: false, status: 429, headers: new Map([['retry-after', '3']]) };
+    if (n === 2) return { ok: false, status: 503, headers: new Map() };
+    return { ok: true, status: 200, json: async () => ({ query: { pages: [] } }) };
+  };
+  assert.deepEqual(await getJson(flaky, 'https://x/api', { wait }), { query: { pages: [] } });
+  assert.deepEqual(waits, [3000, 4000]);
+
+  const always = async () => ({ ok: false, status: 429, headers: new Map() });
+  await assert.rejects(getJson(always, 'https://x/api', { wait }), /요청 실패 \(429\)/);
+
+  const notFound = async () => ({ ok: false, status: 404, headers: new Map() });
+  await assert.rejects(getJson(notFound, 'https://x/api', { wait: () => assert.fail('no retry') }), /\(404\)/);
+});
