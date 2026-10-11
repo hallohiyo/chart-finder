@@ -36,6 +36,10 @@ const { meta, topics, vectorBytes } = await buildTopicData({
   log,
 });
 
+// 자가 점검용: 몇 문장의 벡터를 같이 넣어 두면, 사용자 브라우저의 모델이 같은 결과를 내는지 확인할 수 있다
+const PROBE_TEXTS = ['재즈 피아노 연주', '마인크래프트 야생 생존 1화', '김치찌개 레시피', '로마 제국의 멸망'];
+meta.probes = (await embedTexts(PROBE_TEXTS)).map((v, i) => ({ text: PROBE_TEXTS[i], vec: Array.from(v, (x) => Math.round(x * 1e5) / 1e5) }));
+
 await mkdir('extension/data', { recursive: true });
 await writeFile('extension/data/topics.json', JSON.stringify({ meta, topics }));
 await writeFile('extension/data/topic-vectors.bin', vectorBytes);

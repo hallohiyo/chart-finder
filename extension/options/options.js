@@ -1,4 +1,4 @@
-import { describeIndexStatus } from '../popup/status.js';
+import { describeIndexStatus, describeModelCheck } from '../popup/status.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -42,6 +42,9 @@ function render(overview) {
     : overview.indexError ?? '내장된 주제 데이터를 읽지 못했어요.';
   const { text, progress } = describeIndexStatus(overview.indexStatus);
   $('index-status').textContent = overview.modelReady ? '분석 모델 준비 완료' : text;
+  const check = describeModelCheck(overview.indexStatus?.check);
+  $('model-check').textContent = check?.text ?? '';
+  $('model-check').className = check && !check.ok ? 'warn' : 'muted';
   const bar = $('index-progress');
   bar.hidden = overview.modelReady || progress == null;
   bar.querySelector('.progress-bar').style.setProperty('--p', `${Math.round((progress ?? 0) * 100)}%`);
@@ -59,10 +62,11 @@ function render(overview) {
       const head = document.createElement('div');
       head.className = 'cluster-head';
       const name = document.createElement('strong');
-      name.textContent = `관심 묶음 · 영상 ${c.size}개`;
+      name.textContent = c.labels.join(' · ');
       const share = document.createElement('span');
       share.className = 'muted';
-      share.textContent = `${c.weight}%`;
+      const tight = c.cohesion >= 0.5 ? '높음' : c.cohesion >= 0.3 ? '보통' : '낮음';
+      share.textContent = `영상 ${c.size}개 · 비중 ${c.weight}% · 비슷한 정도 ${tight}(${c.cohesion})`;
       head.append(name, share);
       const barEl = document.createElement('div');
       barEl.className = 'bar';
@@ -77,6 +81,29 @@ function render(overview) {
       li.append(head, barEl, ex);
       return li;
     }),
+  );
+
+  $('recent-recs').replaceChildren(
+    ...(overview.recentRecs.length
+      ? overview.recentRecs.map((r) => {
+          const li = document.createElement('li');
+          const head = document.createElement('div');
+          const title = document.createElement('strong');
+          title.textContent = r.title;
+          const meta = document.createElement('span');
+          meta.className = 'muted';
+          const reaction = r.reaction === 'like' ? ' · 😄' : r.reaction === 'dislike' ? ' · 🤔' : '';
+          meta.textContent = ` · ${r.date}${r.rank != null ? ` · 상위 ${(r.rank * 100).toFixed(1)}%` : ''}${reaction}`;
+          head.append(title, meta);
+          const near = document.createElement('small');
+          near.className = 'muted';
+          near.textContent = r.nearVideos.length
+            ? `가장 가까웠던 내 영상: ${r.nearVideos.map((v) => `${v.title} (${v.similarity})`).join(' / ')}`
+            : '(이전 버전에서 만든 추천이라 기록이 없어요)';
+          li.append(head, near);
+          return li;
+        })
+      : [Object.assign(document.createElement('li'), { textContent: '아직 추천이 없어요.', className: 'muted' })]),
   );
 
   const pct = Math.round(overview.targetRank * 1000) / 10;
@@ -128,6 +155,16 @@ $('import').addEventListener('click', async () => {
   } finally {
     await chrome.permissions.remove({ permissions: ['history'] });
     refresh();
+  }
+});
+
+$('reset-today').addEventListener('click', async () => {
+  $('reset-status').textContent = '새로 뽑는 중…';
+  try {
+    render(await send('resetToday'));
+    $('reset-status').textContent = '새 추천을 뽑았어요. 툴바 아이콘을 눌러 확인하세요.';
+  } catch (err) {
+    $('reset-status').textContent = `실패: ${err.message}`;
   }
 });
 

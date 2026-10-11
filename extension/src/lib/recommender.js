@@ -15,34 +15,53 @@ export const RANK_MIN = 0.003;
 export const RANK_MAX = 0.08;
 const RANK_STEP = 1.3; // 반응 한 번에 목표 순위를 30%씩 옮긴다
 const SPREAD = 0.6; // 로그 스케일 표준편차
-const MIN_CLUSTER_WEIGHT = 0.08;
 const REPEAT_COOLDOWN_DAYS = 90;
 const DISLIKE_SIMILARITY = 0.6; // 싫어요한 주제와 이만큼 비슷한 주제는 점수를 깎는다 (중심화 공간: 과당~포도당 0.79, 공수도~유도 0.51)
 const DISLIKE_PENALTY = 0.3;
 
+const TOP_K = 5; // 주제마다 가장 가까운 내 영상 몇 개의 평균으로 잴지
+const MAX_VIDEOS = 400; // 계산량 제한: 가중치(최근·반복 시청)가 큰 영상부터
+
 /**
- * @param interestMap buildInterestMap 결과
+ * 주제마다 "내 영상 중 가장 가까운 5개"와의 평균 유사도를 잰다.
+ *
+ * 예전엔 관심 묶음의 평균(중심)과 비교했는데, 영상이 수백 개면 묶음 안이 제각각이라
+ * 평균이 흐릿해지고 "자연수", "삼각형" 같은 일반적인 주제가 가깝게 나왔다.
+ * 실제 영상 여러 개와 직접 가까워야 점수가 높으니, 막연한 주제는 끼어들기 어렵다.
+ *
+ * @param videos [{id, title, vec(주제 공간), weight}]
  * @param index {topics, vectors(Float32Array, 길이 N*dim), dim}
  * @returns 점수 순으로 정렬된 후보
  */
-export function scoreTopics({ interestMap, index, prefs = DEFAULT_PREFS, recLog = [], dateKey = '' }) {
-  const clusters = interestMap.clusters.filter((c) => c.weight >= MIN_CLUSTER_WEIGHT);
+export function scoreTopics({ videos, index, prefs = DEFAULT_PREFS, recLog = [], dateKey = '' }) {
   const { topics, vectors, dim } = index;
-  if (clusters.length === 0 || topics.length === 0) return [];
+  const pool = [...videos].sort((a, b) => b.weight - a.weight).slice(0, MAX_VIDEOS);
+  if (pool.length === 0 || topics.length === 0) return [];
 
-  // 1) 주제마다 가장 가까운 관심 묶음과의 유사도
+  // 최근·자주 본 영상이 조금 더 무게를 갖도록 (0.6 ~ 1.0)
+  const maxW = Math.max(...pool.map((v) => v.weight)) || 1;
+  const boost = pool.map((v) => 0.6 + 0.4 * (v.weight / maxW));
+  const k = Math.min(TOP_K, pool.length);
+
+  // 1) 주제마다 가장 가까운 영상 k개의 평균 유사도
   const sims = new Float32Array(topics.length);
-  const anchors = new Int32Array(topics.length);
+  const top = new Float32Array(k);
   for (let t = 0; t < topics.length; t++) {
-    let best = -Infinity;
-    clusters.forEach((c, ci) => {
-      const s = dot(c.centroid, vectors, t * dim);
-      if (s > best) {
-        best = s;
-        anchors[t] = ci;
+    top.fill(-Infinity);
+    for (let v = 0; v < pool.length; v++) {
+      const s = dot(pool[v].vec, vectors, t * dim) * boost[v];
+      if (s > top[k - 1]) {
+        let i = k - 1;
+        while (i > 0 && top[i - 1] < s) {
+          top[i] = top[i - 1];
+          i--;
+        }
+        top[i] = s;
       }
-    });
-    sims[t] = best;
+    }
+    let sum = 0;
+    for (let i = 0; i < k; i++) sum += top[i];
+    sims[t] = sum / k;
   }
 
   // 2) 유사도 순위 → 백분위 (0 = 가장 가까움)
@@ -64,14 +83,22 @@ export function scoreTopics({ interestMap, index, prefs = DEFAULT_PREFS, recLog 
     if (excluded.has(topics[t].id)) continue;
     const fit = Math.exp(-(Math.log(rank[t] / target) ** 2) / (2 * SPREAD * SPREAD));
     if (fit < 0.01) continue;
-    const anchor = clusters[anchors[t]];
-    let score = fit * (0.4 + 0.6 * Math.sqrt(anchor.weight)) * jitter(`${dateKey}:${topics[t].id}`);
+    let score = fit * jitter(`${dateKey}:${topics[t].id}`);
     if (dislikedIdx.some((d) => dot(vectors.subarray(d * dim, (d + 1) * dim), vectors, t * dim) > DISLIKE_SIMILARITY)) {
       score *= DISLIKE_PENALTY;
     }
     out.push({ index: t, topic: topics[t], rank: rank[t], similarity: sims[t], score });
   }
   return out.sort((a, b) => b.score - a.score);
+}
+
+/** 이 주제와 가장 가까웠던 내 영상 (설정 페이지에서 "왜 이게 나왔나" 확인용) */
+export function nearestVideos(topicIndex, videos, index, n = 3) {
+  return videos
+    .map((v) => ({ title: v.title, similarity: dot(v.vec, index.vectors, topicIndex * index.dim) }))
+    .sort((a, b) => b.similarity - a.similarity)
+    .slice(0, n)
+    .map((v) => ({ title: v.title, similarity: round(v.similarity) }));
 }
 
 /** 오늘의 추천 1개. 후보가 없으면 null */
@@ -90,6 +117,7 @@ export function recommend(args) {
     description: best.topic.description ?? '',
     rank: round(best.rank),
     similarity: round(best.similarity),
+    nearVideos: nearestVideos(best.index, args.videos, args.index),
   };
 }
 

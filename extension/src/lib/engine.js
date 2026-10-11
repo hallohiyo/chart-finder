@@ -3,6 +3,7 @@
 // 실행 중에 필요한 건 영상 제목을 분석할 모델뿐이라, 처음 한 번 모델만 내려받는다.
 
 import { prepareIndex, toTopicSpace } from './topic-space.js';
+import { dot } from './vector.js';
 
 const EMBED_BATCH = 32;
 
@@ -42,10 +43,15 @@ export function createEngine({ kv, loadBundled, embedTexts, onStatus = () => {} 
       if (modelReady) return Promise.resolve();
       warming ??= (async () => {
         report({ phase: 'downloading', done: 0, total: 0 });
-        await embedTexts(['준비'], ({ loaded, total }) => report({ phase: 'downloading', done: loaded, total }));
         const index = await loadIndex();
+        // 자가 점검: 내장 데이터를 만들 때와 같은 문장을 넣어 같은 벡터가 나오는지 본다.
+        // 다르면 내 영상과 주제가 서로 다른 공간에 있어서 추천이 엉뚱해진다.
+        const probes = index.meta.probes ?? [];
+        const texts = probes.length ? probes.map((p) => p.text) : ['준비'];
+        const vecs = await embedTexts(texts, ({ loaded, total }) => report({ phase: 'downloading', done: loaded, total }));
+        const check = probes.length ? Math.min(...probes.map((p, i) => dot(vecs[i], p.vec))) : null;
         modelReady = true;
-        report({ phase: 'ready', done: index.topics.length, total: index.topics.length });
+        report({ phase: 'ready', done: index.topics.length, total: index.topics.length, check });
       })()
         .catch((err) => {
           report({ phase: 'error', error: err.message });

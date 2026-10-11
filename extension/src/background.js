@@ -99,6 +99,9 @@ async function handle(msg, sender) {
       return enrich();
     case 'importHistory':
       return importHistory();
+    case 'resetToday':
+      await service.resetToday();
+      return service.overview();
     case 'clearData':
       await store.clearData();
       await engine.clearVideoVectors();

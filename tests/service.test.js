@@ -188,6 +188,26 @@ test('설정 페이지 개요: 주제 수와 관심 묶음 예시 영상', async
   assert.equal(o.recentVideos[0].title, MUSIC_TITLES.at(-1), '최근 본 순서');
   assert.ok(o.clusters.length >= 1);
   assert.ok(o.clusters.every((c) => c.examples.every((t) => MUSIC_TITLES.includes(t))));
+  assert.ok(o.clusters.every((c) => c.labels.length === 3 && c.labels.every((l) => /^주제\d+$/.test(l))), '묶음 이름 = 가까운 주제 3개');
+  assert.ok(o.clusters.every((c) => typeof c.cohesion === 'number'));
+
+  await service.getToday();
+  const o2 = await service.overview();
+  assert.equal(o2.recentRecs.length, 1);
+  assert.match(o2.recentRecs[0].title, /^주제\d+$/);
+  assert.equal(o2.recentRecs[0].nearVideos.length, 3);
+  assert.ok(o2.recentRecs[0].nearVideos.every((v) => MUSIC_TITLES.includes(v.title)));
+});
+
+test('오늘 추천 다시 뽑기: 오늘 추천을 비우고, 이미 본 주제는 빼고 새로 뽑는다', async () => {
+  const { service, engine, clock, store } = setup();
+  await ready(service, engine, clock);
+  const first = (await service.getToday()).recommendation;
+  const again = await service.resetToday();
+  assert.equal(again.status, 'ready');
+  assert.notEqual(again.recommendation.topicId, first.topicId);
+  assert.equal(again.index, 1, '오늘 한도는 다시 1개부터');
+  assert.deepEqual((await store.getRecLog()).map((r) => r.topicId), [first.topicId, again.recommendation.topicId]);
 });
 
 test('일시정지 중에는 기록하지 않고, 잘못된 ID도 무시한다', async () => {

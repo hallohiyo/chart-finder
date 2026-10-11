@@ -15,3 +15,12 @@ export function describeIndexStatus(s = {}) {
       return { text: '분석 모델을 곧 내려받을게요.', progress: null };
   }
 }
+
+/** 자가 점검 결과 → 문구. check: 브라우저 모델과 내장 데이터의 일치도 (1 = 완전히 같음) */
+export function describeModelCheck(check) {
+  if (check == null) return null;
+  const pct = (check * 100).toFixed(1);
+  return check >= 0.98
+    ? { ok: true, text: `모델 점검: 정상 (내장 데이터와 일치도 ${pct}%)` }
+    : { ok: false, text: `모델 점검: 이상 — 내장 데이터와 일치도 ${pct}%. 이 상태에선 추천이 엉뚱할 수 있어요. 이 문구를 개발자에게 알려 주세요.` };
+}

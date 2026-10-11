@@ -43,6 +43,8 @@ export function buildInterestMap(videos, vectors, now = Date.now()) {
       .map((e) => e.title);
     clusters.push({
       centroid,
+      // 묶음 안 영상들이 중심과 얼마나 비슷한지 (높을수록 비슷한 영상끼리 묶임)
+      cohesion: members.reduce((sum, p) => sum + dot(p.vec, centroid), 0) / members.length,
       weight: members.reduce((s, p) => s + p.weight, 0) / totalWeight,
       size: members.length,
       examples,

@@ -49,3 +49,8 @@ body { width: auto; }
 .saved ol { margin: 6px 0 0; padding-left: 22px; font-size: 13px; max-height: 360px; overflow-y: auto; }
 .saved a { color: var(--fg); text-decoration: none; }
 .saved a:hover { text-decoration: underline; }
+
+.recs { margin: 8px 0 0; padding-left: 20px; }
+.recs li { margin-bottom: 10px; }
+.recs small { display: block; margin-top: 2px; }
+.warn { color: #c0392b; font-weight: 600; }

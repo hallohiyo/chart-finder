@@ -77,14 +77,28 @@
       </p>
       <p id="topic-status"></p>
       <p id="index-status" class="muted"></p>
+      <p id="model-check"></p>
       <div class="progress" id="index-progress" hidden><div class="progress-bar"></div></div>
     </section>
 
     <section class="card">
       <h2>내 관심 지도</h2>
+      <p class="muted">
+        정해진 카테고리로 나눈 게 아니에요. AI 모델이 영상 제목의 뜻을 숫자로 바꾼 뒤, 서로 가까운 영상끼리 자동으로 묶었어요.
+        그래서 각 묶음 이름은 <strong>묶음 중심과 가장 가까운 위키백과 주제 3개</strong>로 대신 보여줘요.
+        "비슷한 정도"가 낮은 묶음은 이것저것 섞여 있다는 뜻이에요.
+      </p>
       <p id="map-summary" class="muted"></p>
       <ol id="clusters" class="clusters"></ol>
       <p id="distance" class="muted"></p>
+    </section>
+
+    <section class="card">
+      <h2>최근 추천 기록</h2>
+      <p class="muted">추천은 주제마다 "내 영상 중 가장 비슷한 5개"와의 평균 비슷한 정도로 줄을 세워, 너무 가깝지 않은 쪽에서 골라요. 각 추천이 어떤 영상과 가장 가까웠는지 보여줘요.</p>
+      <ol id="recent-recs" class="recs"></ol>
+      <button id="reset-today">오늘 추천 다시 뽑기</button>
+      <span id="reset-status" class="muted"></span>
     </section>
 
     <section class="card danger-zone">

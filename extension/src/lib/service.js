@@ -1,6 +1,7 @@
 // 백그라운드 서비스 로직. chrome API 에 직접 의존하지 않아 테스트에서 가짜 저장소/엔진으로 돌릴 수 있다.
 
-import { buildInterestMap } from './interest-map.js';
+import { buildInterestMap, videoWeight } from './interest-map.js';
+import { dot } from './vector.js';
 import { recommend, applyFeedback } from './recommender.js';
 import { fetchVideoMetadata, isValidVideoId } from './youtube.js';
 import { localDateKey } from './store.js';
@@ -25,8 +26,10 @@ export function createService(store, engine, { fetchImpl = fetch, fetchSummary, 
     const index = await engine.loadIndex();
     const videos = titled(await store.getVideos());
     const vectors = await engine.embedVideos(videos);
-    const map = buildInterestMap(videos, vectors, now());
-    const rec = recommend({ interestMap: map, index, prefs, recLog, dateKey });
+    const pool = videos
+      .filter((v) => vectors.has(v.id))
+      .map((v) => ({ id: v.id, title: v.title, vec: vectors.get(v.id), weight: videoWeight(v, now()) }));
+    const rec = recommend({ videos: pool, index, prefs, recLog, dateKey });
     if (!rec) return null;
     const summary = fetchSummary ? await fetchSummary(rec.title) : { extract: '', url: '' };
     return {
@@ -107,7 +110,10 @@ export function createService(store, engine, { fetchImpl = fetch, fetchSummary, 
           if (latest.recs.length >= settings.maxPerDay) return undefined;
           return {
             daily: { ...latest, recs: [...latest.recs, { ...rec, reaction: null, createdAt: now() }] },
-            recLog: [...state.recLog, { topicId: rec.topicId, date: dateKey, rank: rec.rank, reaction: null }],
+            recLog: [
+              ...state.recLog,
+              { topicId: rec.topicId, title: rec.title, date: dateKey, rank: rec.rank, nearVideos: rec.nearVideos, reaction: null },
+            ],
             prefs: state.prefs,
           };
         });
@@ -169,6 +175,16 @@ export function createService(store, engine, { fetchImpl = fetch, fetchSummary, 
       return view(dateKey);
     },
 
+    /**
+     * 테스트용: 오늘 받은 추천을 비우고 새로 뽑는다. 이미 본 주제는 기록에 남겨서(쿨다운) 다른 주제가 나오고,
+     * 반응·선호도는 건드리지 않는다.
+     */
+    async resetToday() {
+      const dateKey = localDateKey(new Date(now()));
+      await store.updateRecommendationState(({ recLog, prefs }) => ({ daily: { date: dateKey, recs: [] }, recLog, prefs }));
+      return daily({ generateNext: false });
+    },
+
     /** 설정 페이지 요약 */
     async overview() {
       const [prefs, recLog, settings, videos, indexStatus] = await Promise.all([
@@ -193,7 +209,14 @@ export function createService(store, engine, { fetchImpl = fetch, fetchSummary, 
       if (index && engine.isModelReady() && all.length) {
         const list = titled(videos);
         const map = buildInterestMap(list, await engine.embedVideos(list), now());
-        clusters = map.clusters.map((c) => ({ weight: Math.round(c.weight * 100), size: c.size, examples: c.examples }));
+        clusters = map.clusters.map((c) => ({
+          weight: Math.round(c.weight * 100),
+          size: c.size,
+          examples: c.examples,
+          cohesion: Math.round(c.cohesion * 100) / 100,
+          // 묶음에는 정해진 카테고리가 없다. 중심과 가장 가까운 위키백과 주제로 이름을 대신한다
+          labels: nearestTopicTitles(c.centroid, index, 3),
+        }));
       }
       return {
         settings: { ...settings, apiKey: settings.apiKey ? '••••' + settings.apiKey.slice(-4) : '' },
@@ -211,6 +234,13 @@ export function createService(store, engine, { fetchImpl = fetch, fetchSummary, 
         indexStatus,
         clusters,
         targetRank: prefs.targetRank,
+        recentRecs: [...recLog].reverse().slice(0, 10).map((r) => ({
+          title: r.title ?? r.topicId,
+          date: r.date,
+          rank: r.rank,
+          reaction: r.reaction,
+          nearVideos: r.nearVideos ?? [],
+        })),
         reactions: {
           like: recLog.filter((r) => r.reaction === 'like').length,
           dislike: recLog.filter((r) => r.reaction === 'dislike').length,
@@ -218,4 +248,17 @@ export function createService(store, engine, { fetchImpl = fetch, fetchSummary, 
       };
     },
   };
+}
+
+function nearestTopicTitles(vec, index, n) {
+  const best = [];
+  for (let t = 0; t < index.topics.length; t++) {
+    const s = dot(vec, index.vectors, t * index.dim);
+    if (best.length < n || s > best[best.length - 1].s) {
+      best.push({ t, s });
+      best.sort((a, b) => b.s - a.s);
+      if (best.length > n) best.pop();
+    }
+  }
+  return best.map(({ t }) => index.topics[t].title);
 }
