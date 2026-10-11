@@ -6,12 +6,22 @@ import { memoryKv, fakeEmbed, fakeWikiFetch, FAKE_DIM } from './helpers.js';
 
 const ROOT = 'Wikipedia:Vital articles/Level/4';
 
+// 상위 페이지 → 섹션(사람 섹션은 빼야 함, 한 섹션은 넘겨주기) → 하위 페이지 구조
 function wikiFixture(n = 150) {
   const arts = Array.from({ length: n }, (_, i) => ({ ns: 0, title: `Art ${i}` }));
   const vital = {
+    [ROOT]: [
+      { ns: 4, title: `${ROOT}/Arts` },
+      { ns: 4, title: `${ROOT}/Science` },
+      { ns: 4, title: `${ROOT}/People` },
+      { ns: 4, title: 'Wikipedia:Vital articles/Level/5' },
+    ],
     [`${ROOT}/Arts`]: [...arts.slice(0, 100), { ns: 4, title: `${ROOT}/Arts/More` }, { ns: 4, title: 'Wikipedia:Unrelated' }],
     [`${ROOT}/Arts/More`]: arts.slice(100),
+    [`${ROOT}/Sciences (moved)`]: [{ ns: 0, title: 'Physics' }],
+    [`${ROOT}/People`]: [{ ns: 0, title: 'Some Person' }],
   };
+  const redirects = { [`${ROOT}/Science`]: `${ROOT}/Sciences (moved)` };
   const langlinks = {};
   const descriptions = {};
   arts.forEach(({ title }, i) => {
@@ -19,14 +29,37 @@ function wikiFixture(n = 150) {
     langlinks[title] = `미술 ${i}`;
     descriptions[`미술 ${i}`] = `미술 분야 문서 ${i}`;
   });
-  return { vital, langlinks, descriptions };
+  return { vital, redirects, langlinks, descriptions };
 }
 
-test('Vital articles: 하위 페이지까지 따라가고 다른 프로젝트 문서는 무시한다', async () => {
+test('목록 페이지: 섹션을 찾아 넘겨주기·하위 페이지까지 따라가고, 사람 섹션과 다른 문서는 뺀다', async () => {
   const { impl } = fakeWikiFetch(wikiFixture());
-  const titles = await fetchVitalTitles(impl, ['Arts']);
-  assert.equal(titles.length, 150);
+  const { titles, diagnostics } = await fetchVitalTitles(impl);
   assert.ok(titles.includes('Art 149'));
+  assert.ok(titles.includes('Physics'), '넘겨주기 따라감');
+  assert.ok(!titles.includes('Some Person'), '사람 섹션 제외');
+  assert.equal(titles.length, 151);
+  assert.match(diagnostics, /목록 페이지/);
+});
+
+test('목록 페이지가 비어 있으면 분류에서 모은다', async () => {
+  const talk = (prefix, n) => Array.from({ length: n }, (_, i) => ({ ns: 1, title: `Talk:${prefix} ${i}` }));
+  const cat = 'Category:Wikipedia level-4 vital articles';
+  const { impl } = fakeWikiFetch({
+    vital: { [ROOT]: [] },
+    categories: {
+      [cat]: [
+        { ns: 14, title: `${cat} in Arts` },
+        { ns: 14, title: `${cat} in People` },
+      ],
+      [`${cat} in Arts`]: talk('Art', 1200),
+      [`${cat} in People`]: talk('Person', 10),
+    },
+  });
+  const { titles, diagnostics } = await fetchVitalTitles(impl);
+  assert.equal(titles.length, 1200);
+  assert.ok(titles.includes('Art 0'), '"Talk:" 제거');
+  assert.match(diagnostics, /분류 2개까지 합쳐 1200개/);
 });
 
 test('한국어판이 없는 문서는 버리고, 설명을 붙인다', async () => {
@@ -93,11 +126,11 @@ test('임베딩 도중 멈춰도 다음에 이어서 한다', async () => {
   assert.deepEqual([...index.vectors.subarray(0, FAKE_DIM)], [...expected]);
 });
 
-test('목록이 너무 적으면 오류로 알린다', async () => {
-  const { impl } = fakeWikiFetch({ vital: {}, langlinks: {}, descriptions: {} });
+test('목록이 너무 적으면 어디서 몇 개 나왔는지와 함께 오류로 알린다', async () => {
+  const { impl } = fakeWikiFetch({});
   const statuses = [];
   const engine = createEngine({ kv: memoryKv(), fetchImpl: impl, embedTexts: fakeEmbed, dim: FAKE_DIM, onStatus: (s) => statuses.push(s) });
-  await assert.rejects(engine.ensureIndex(), /너무 적어요/);
+  await assert.rejects(engine.ensureIndex(), /너무 적어요 \(목록 페이지 \d+개에서 0개, 분류 1개까지 합쳐 0개\)/);
   assert.equal(statuses.at(-1).phase, 'error');
 });
 

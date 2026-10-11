@@ -36,6 +36,7 @@ const counts = { hf: 0, wiki: 0, other: [] };
       return json(route, { extract: `${t}에 대한 요약입니다. (${desc(Number(t.replace(/\D/g, '')))})`, content_urls: { desktop: { page: `https://ko.wikipedia.org/wiki/${t}` } } });
     }
     const titles = (p.get('titles') ?? '').split('|');
+    if (p.get('list') === 'categorymembers') return json(route, { query: { categorymembers: [] } });
     if (p.get('prop') === 'links') {
       const links = titles[0] === `${ROOT}/Arts` ? Array.from({ length: N }, (_, i) => ({ ns: 0, title: `Topic ${i}` })) : [];
       return json(route, { batchcomplete: true, query: { pages: [{ ns: 4, title: titles[0], links }] } });
@@ -89,6 +90,8 @@ const counts = { hf: 0, wiki: 0, other: [] };
   await opt.setViewportSize({ width: 800, height: 1600 });
   await opt.goto(`chrome-extension://${id}/options/options.html`);
   await opt.waitForSelector('#clusters li', { timeout: 15000 });
+  await opt.click('#saved-summary');
+  console.log('saved:', await opt.textContent('#saved-summary'), '|', (await opt.textContent('#saved-list li')).trim());
   await opt.screenshot({ path: path.join(OUT, 'options.png'), fullPage: true });
   console.log('options:', await opt.textContent('#index-status'), '|', await opt.textContent('#distance'));
   console.log('requests: hf', counts.hf, 'wiki', counts.wiki, 'unexpected', counts.other);

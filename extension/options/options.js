@@ -20,6 +20,23 @@ function render(overview) {
       : ' 모든 영상의 메타데이터를 받아왔어요.'
     : '';
 
+  $('saved-summary').textContent = `저장된 영상 보기 (${overview.videoCount}개)`;
+  $('saved-list').replaceChildren(
+    ...overview.recentVideos.map((v) => {
+      const li = document.createElement('li');
+      const a = document.createElement('a');
+      a.href = `https://www.youtube.com/watch?v=${encodeURIComponent(v.id)}`;
+      a.target = '_blank';
+      a.rel = 'noopener noreferrer';
+      a.textContent = v.title;
+      const meta = document.createElement('span');
+      meta.className = 'muted';
+      meta.textContent = ` · ${new Date(v.lastSeen).toLocaleDateString('ko-KR')}${v.count > 1 ? ` · ${v.count}번` : ''}`;
+      li.append(a, meta);
+      return li;
+    }),
+  );
+
   const { text, progress } = describeIndexStatus(overview.indexStatus);
   $('index-status').textContent = overview.topicCount ? `주제 ${overview.topicCount}개 준비 완료` : text;
   const bar = $('index-progress');

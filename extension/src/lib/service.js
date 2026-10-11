@@ -180,6 +180,11 @@ export function createService(store, engine, { fetchImpl = fetch, fetchSummary, 
       return {
         settings: { ...settings, apiKey: settings.apiKey ? '••••' + settings.apiKey.slice(-4) : '' },
         videoCount: all.length,
+        // 사용자가 실제로 뭐가 저장됐는지 눈으로 확인할 수 있게 최근 영상 일부를 보여준다
+        recentVideos: [...all]
+          .sort((a, b) => b.lastSeen - a.lastSeen)
+          .slice(0, 50)
+          .map((v) => ({ id: v.id, title: v.title || '(제목 없음)', lastSeen: v.lastSeen, count: v.count })),
         pendingCount: all.filter((v) => !v.enriched).length,
         topicCount: index?.topics.length ?? 0,
         indexStatus,

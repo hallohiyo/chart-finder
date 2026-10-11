@@ -7,8 +7,14 @@ const KO_REST = 'https://ko.wikipedia.org/api/rest_v1';
 const VITAL_ROOT = 'Wikipedia:Vital articles/Level/4';
 const BATCH = 50; // MediaWiki titles= 파라미터 최대 개수
 
-// 사람·장소 목록은 "지식 주제"보다 인명사전/지명사전에 가까워서 기본으로 뺀다.
-export const DEFAULT_SECTIONS = [
+const VITAL_CATEGORY = 'Category:Wikipedia level-4 vital articles';
+const MIN_TITLES = 1000; // 목록 페이지에서 이보다 적게 나오면 분류(category)에서도 모은다
+
+// 사람·장소 목록은 "지식 주제"보다 인명사전/지명사전에 가까워서 뺀다.
+export const EXCLUDED_SECTIONS = ['People', 'Geography'];
+
+// 상위 페이지에서 섹션을 못 찾았을 때 쓰는 예비 이름
+export const FALLBACK_SECTIONS = [
   'Arts',
   'Philosophy and religion',
   'Everyday life',
@@ -33,41 +39,111 @@ async function getJson(fetchImpl, url) {
   return body;
 }
 
-/** action=query 를 continue 토큰이 없어질 때까지 반복한다 */
-async function queryAll(fetchImpl, base, params) {
-  const pages = [];
+/** action=query 를 continue 토큰이 없어질 때까지 반복한다. key: query 안에서 모을 배열 이름 */
+async function queryAll(fetchImpl, base, params, key = 'pages') {
+  const items = [];
   let cont = {};
-  for (let guard = 0; guard < 200; guard++) {
+  for (let guard = 0; guard < 500; guard++) {
     const body = await getJson(fetchImpl, apiUrl(base, { action: 'query', ...params, ...cont }));
-    pages.push(...(body.query?.pages ?? []));
+    items.push(...(body.query?.[key] ?? []));
     if (!body.continue) break;
     cont = body.continue;
   }
-  return pages;
+  return items;
 }
 
-/**
- * Vital articles 목록 페이지(와 하위 페이지)에 걸린 일반 문서 제목을 모은다.
- * 섹션 페이지가 다시 하위 페이지로 나뉘어 있으면 따라 들어간다.
- */
-export async function fetchVitalTitles(fetchImpl, sections = DEFAULT_SECTIONS, onProgress = () => {}) {
+/** 페이지에 걸린 링크. 넘겨주기(redirect)는 따라간다. @returns {page: 실제 제목, links} 배열 */
+async function linksOf(fetchImpl, title, namespaces) {
+  const pages = await queryAll(fetchImpl, EN_API, { prop: 'links', titles: title, plnamespace: namespaces, pllimit: 'max', redirects: '1' });
+  const byTitle = new Map();
+  for (const p of pages) {
+    if (!byTitle.has(p.title)) byTitle.set(p.title, []);
+    byTitle.get(p.title).push(...(p.links ?? []));
+  }
+  return [...byTitle].map(([page, links]) => ({ page, links }));
+}
+
+const isExcluded = (name) => EXCLUDED_SECTIONS.some((x) => name.includes(x));
+
+/** 방법 1: 목록 페이지. 상위 페이지에서 섹션을 찾고, 섹션의 하위 페이지까지 따라간다 */
+async function fromListPages(fetchImpl, onProgress) {
+  const root = await linksOf(fetchImpl, VITAL_ROOT, '4');
+  const rootTitle = root[0]?.page ?? VITAL_ROOT;
+  let sections = (root[0]?.links ?? [])
+    .map((l) => l.title)
+    .filter((t) => t.startsWith(`${rootTitle}/`) && !t.slice(rootTitle.length + 1).includes('/'))
+    .filter((t) => !isExcluded(t.slice(rootTitle.length + 1)));
+  if (sections.length === 0) sections = FALLBACK_SECTIONS.map((s) => `${VITAL_ROOT}/${s}`);
+
   const titles = new Set();
   const visited = new Set();
-  const queue = sections.map((s) => `${VITAL_ROOT}/${s}`);
-  while (queue.length) {
+  const queue = [...sections];
+  while (queue.length && visited.size < 300) {
     const page = queue.shift();
     if (visited.has(page)) continue;
     visited.add(page);
-    const pages = await queryAll(fetchImpl, EN_API, { prop: 'links', titles: page, plnamespace: '0|4', pllimit: 'max' });
-    for (const p of pages) {
-      for (const link of p.links ?? []) {
+    for (const { page: actual, links } of await linksOf(fetchImpl, page, '0|4')) {
+      visited.add(actual);
+      for (const link of links) {
         if (link.ns === 0) titles.add(link.title);
-        else if (link.ns === 4 && link.title.startsWith(`${page}/`)) queue.push(link.title);
+        else if (link.ns === 4 && link.title.startsWith(`${actual}/`)) queue.push(link.title);
       }
     }
-    onProgress({ pages: visited.size, titles: titles.size });
+    onProgress({ titles: titles.size });
   }
-  return [...titles];
+  return { titles, sections: sections.length, pages: visited.size };
+}
+
+/** 방법 2: 분류. 토론 문서(Talk:)에 붙은 분류라서 "Talk:" 를 떼면 문서 제목이 된다 */
+async function fromCategory(fetchImpl, onProgress, seed = new Set()) {
+  const titles = new Set(seed);
+  const queue = [{ cat: VITAL_CATEGORY, depth: 0 }];
+  const visited = new Set();
+  while (queue.length && visited.size < 100) {
+    const { cat, depth } = queue.shift();
+    if (visited.has(cat)) continue;
+    visited.add(cat);
+    const members = await queryAll(
+      fetchImpl,
+      EN_API,
+      { list: 'categorymembers', cmtitle: cat, cmtype: 'page|subcat', cmlimit: 'max' },
+      'categorymembers',
+    );
+    for (const m of members) {
+      if (m.ns === 14) {
+        if (depth < 2 && !isExcluded(m.title)) queue.push({ cat: m.title, depth: depth + 1 });
+      } else if (m.ns === 1) titles.add(m.title.replace(/^Talk:/, ''));
+      else if (m.ns === 0) titles.add(m.title);
+    }
+    onProgress({ titles: titles.size });
+  }
+  return { titles, categories: visited.size };
+}
+
+/**
+ * Vital articles Level 4 의 문서 제목을 모은다. 페이지 이름·구조가 바뀌어도 되도록
+ * 목록 페이지 → (부족하면) 분류 순서로 시도하고, 둘 다 실패하면 어디서 몇 개 나왔는지 알려준다.
+ */
+export async function fetchVitalTitles(fetchImpl, onProgress = () => {}) {
+  const diag = [];
+  let titles = new Set();
+  try {
+    const r = await fromListPages(fetchImpl, onProgress);
+    titles = r.titles;
+    diag.push(`목록 페이지 ${r.pages}개에서 ${r.titles.size}개`);
+  } catch (err) {
+    diag.push(`목록 페이지 실패: ${err.message}`);
+  }
+  if (titles.size < MIN_TITLES) {
+    try {
+      const r = await fromCategory(fetchImpl, onProgress, titles);
+      diag.push(`분류 ${r.categories}개까지 합쳐 ${r.titles.size}개`);
+      titles = r.titles;
+    } catch (err) {
+      diag.push(`분류 실패: ${err.message}`);
+    }
+  }
+  return { titles: [...titles], diagnostics: diag.join(', ') };
 }
 
 /** 영어 문서 제목 → 한국어 문서 제목. 한국어판이 없는 문서는 버린다 */

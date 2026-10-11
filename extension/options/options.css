@@ -43,3 +43,9 @@ body { width: auto; }
 .examples { margin: 2px 0 0; padding-left: 16px; font-size: 13px; }
 .examples li { margin: 0; }
 .progress { margin: 8px 0 12px; height: 6px; border-radius: 3px; background: var(--border); overflow: hidden; }
+
+.saved { margin-top: 14px; }
+.saved summary { cursor: pointer; color: var(--accent); }
+.saved ol { margin: 6px 0 0; padding-left: 22px; font-size: 13px; max-height: 360px; overflow-y: auto; }
+.saved a { color: var(--fg); text-decoration: none; }
+.saved a:hover { text-decoration: underline; }

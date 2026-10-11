@@ -167,6 +167,8 @@ test('설정 페이지 개요: 주제 수와 관심 묶음 예시 영상', async
   const o = await service.overview();
   assert.equal(o.settings.apiKey, '••••1234');
   assert.equal(o.topicCount, 300);
+  assert.equal(o.recentVideos.length, MUSIC_TITLES.length);
+  assert.equal(o.recentVideos[0].title, MUSIC_TITLES.at(-1), '최근 본 순서');
   assert.ok(o.clusters.length >= 1);
   assert.ok(o.clusters.every((c) => c.examples.every((t) => MUSIC_TITLES.includes(t))));
 });

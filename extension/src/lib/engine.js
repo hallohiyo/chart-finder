@@ -34,10 +34,10 @@ export function createEngine({ kv, fetchImpl, embedTexts, dim, onStatus = () => 
     let topics = await kv.get('topics');
     if (!topics) {
       report({ phase: 'listing', done: 0, total: 0 });
-      const en = await fetchVitalTitles(fetchImpl, undefined, ({ titles }) =>
+      const { titles: en, diagnostics } = await fetchVitalTitles(fetchImpl, ({ titles }) =>
         report({ phase: 'listing', done: titles, total: 0 }),
       );
-      if (en.length < 100) throw new Error(`위키백과 주제 목록이 너무 적어요 (${en.length}개)`);
+      if (en.length < 100) throw new Error(`위키백과 주제 목록이 너무 적어요 (${diagnostics})`);
       const ko = await mapToKorean(fetchImpl, en, ({ done, total }) => report({ phase: 'translating', done, total }));
       topics = await addKoreanDescriptions(fetchImpl, ko, ({ done, total }) => report({ phase: 'describing', done, total }));
       await kv.set('topics', topics);

@@ -66,8 +66,11 @@ export function videos(titles, { now = Date.now(), prefix = 'v' } = {}) {
   }));
 }
 
-/** 가짜 MediaWiki API. 실제 응답 모양(formatversion=2)을 흉내 낸다 */
-export function fakeWikiFetch({ vital, langlinks, descriptions, summaries = {} }) {
+/**
+ * 가짜 MediaWiki API. 실제 응답 모양(formatversion=2)을 흉내 낸다.
+ * vital: 페이지 → 링크, redirects: 넘겨주기, categories: 분류 → 구성원
+ */
+export function fakeWikiFetch({ vital = {}, redirects = {}, categories = {}, langlinks = {}, descriptions = {}, summaries = {} }) {
   const calls = [];
   const json = (body, ok = true) => ({ ok, status: ok ? 200 : 500, json: async () => body });
   const impl = async (url) => {
@@ -78,10 +81,17 @@ export function fakeWikiFetch({ vital, langlinks, descriptions, summaries = {} }
       const title = decodeURIComponent(u.pathname.split('/').pop()).replaceAll('_', ' ');
       return summaries[title] ? json(summaries[title]) : json({}, false);
     }
+    if (p.get('list') === 'categorymembers') {
+      return json({ query: { categorymembers: categories[p.get('cmtitle')] ?? [] } });
+    }
     const titles = (p.get('titles') ?? '').split('|');
     if (p.get('prop') === 'links') {
-      const links = vital[titles[0]] ?? [];
-      return json({ query: { pages: [{ title: titles[0], links }] } });
+      const asked = titles[0];
+      const target = p.get('redirects') && redirects[asked] ? redirects[asked] : asked;
+      const ns = p.get('plnamespace').split('|').map(Number);
+      if (!(target in vital)) return json({ query: { pages: [{ title: target, missing: true }] } });
+      const links = vital[target].filter((l) => ns.includes(l.ns));
+      return json({ query: { ...(target !== asked ? { redirects: [{ from: asked, to: target }] } : {}), pages: [{ title: target, links }] } });
     }
     if (p.get('prop') === 'langlinks') {
       return json({
