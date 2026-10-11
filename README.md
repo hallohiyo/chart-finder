@@ -21,6 +21,23 @@
    - **YouTube Data API 키**: 태그까지 분석에 써서 더 정확해짐 (없으면 제목만 사용)
 5. 유튜브 영상이 5개 이상 쌓이면 툴바 아이콘 팝업에 오늘의 추천이 나타납니다.
 
+## 업데이트를 쉽게 하기 (Windows)
+
+처음 한 번만 [Git](https://git-scm.com)을 설치하고 ZIP 대신 `git clone`으로 받아 두면,
+이후엔 **`update.bat` 더블클릭 → 크롬에서 ↻** 만으로 업데이트돼요.
+
+1. Git 설치 (설치 옵션은 전부 기본값)
+2. 명령 프롬프트에서 받을 위치로 이동한 뒤:
+   ```
+   git clone -b ccr-49c50553-q4u3dp https://github.com/hallohiyo/chart-finder.git chart-finder-git
+   ```
+   깃허브 로그인 창이 뜨면 로그인하세요.
+3. 생긴 `chart-finder-git` 폴더의 **`update.bat`을 더블클릭** (처음 빌드도 이걸로 됩니다)
+4. 크롬 `chrome://extensions` → 기존 "살짝 빗나간 추천"은 **삭제**하고, `chart-finder-git\extension` 폴더를 새로 로드
+   - 폴더 위치가 바뀌면 크롬이 새 확장으로 보기 때문에, 설정에서 "유튜브 시청 기록 가져오기"를 한 번 다시 눌러 주세요.
+
+그다음부터 업데이트할 땐 `update.bat` 더블클릭 → `chrome://extensions`에서 ↻ 만 누르면 됩니다.
+
 ```bash
 npm run build                  # extension/vendor/ 다시 만들기
 npm test                       # 단위 테스트
