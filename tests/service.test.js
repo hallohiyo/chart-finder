@@ -173,7 +173,7 @@ test('반응은 한 번만 선호도에 반영된다', async () => {
   const once = (await store.getPrefs()).targetRank;
   await service.react(recommendation.topicId, 'dislike');
   assert.equal((await store.getPrefs()).targetRank, once);
-  assert.ok(once < 0.03);
+  assert.ok(once < 0.015);
 });
 
 test('설정 페이지 개요: 주제 수와 관심 묶음 예시 영상', async () => {

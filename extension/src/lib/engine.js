@@ -2,6 +2,8 @@
 // 주제 목록과 주제 벡터는 미리 만들어 확장 프로그램에 들어 있다 (scripts/build-topics.mjs).
 // 실행 중에 필요한 건 영상 제목을 분석할 모델뿐이라, 처음 한 번 모델만 내려받는다.
 
+import { prepareIndex, toTopicSpace } from './topic-space.js';
+
 const EMBED_BATCH = 32;
 
 /**
@@ -19,7 +21,7 @@ export function createEngine({ kv, loadBundled, embedTexts, onStatus = () => {} 
 
   function loadIndex() {
     indexPromise ??= loadBundled()
-      .then(({ meta, topics, vectors }) => ({ topics, vectors, dim: meta.dim, meta }))
+      .then(prepareIndex)
       .catch((err) => {
         indexPromise = null;
         throw err;
@@ -55,8 +57,13 @@ export function createEngine({ kv, loadBundled, embedTexts, onStatus = () => {} 
       return warming;
     },
 
-    /** 영상 벡터를 계산한다. 이미 계산한 영상은 캐시에서 꺼낸다. @returns Map<videoId, Float32Array> */
+    /**
+     * 영상 벡터를 계산한다. 이미 계산한 영상은 캐시에서 꺼낸다.
+     * 캐시에는 모델 출력 그대로 두고, 돌려줄 때 주제 공간(중심화)으로 옮긴다.
+     * @returns Map<videoId, Float32Array>
+     */
     async embedVideos(videos) {
+      const index = await loadIndex();
       const cache = (await kv.get('videoVectors')) ?? {};
       const next = {};
       const missing = [];
@@ -75,7 +82,7 @@ export function createEngine({ kv, loadBundled, embedTexts, onStatus = () => {} 
       }
       // 지워진 영상의 벡터는 함께 버린다
       await kv.set('videoVectors', next);
-      return new Map(Object.entries(next).map(([id, e]) => [id, e.vec]));
+      return new Map(Object.entries(next).map(([id, e]) => [id, toTopicSpace(e.vec, index)]));
     },
 
     async clearVideoVectors() {

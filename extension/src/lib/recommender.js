@@ -3,20 +3,21 @@
 // 거리는 유사도 값이 아니라 "순위"로 잰다. 모든 후보 주제를 내 관심 묶음과 가까운 순으로 줄 세웠을 때
 // 상위 몇 %에 있는지(targetRank)를 목표로 삼는다. 임베딩 모델마다 유사도 값의 범위가 제각각이라
 // 순위 기준이 모델이 바뀌어도 그대로 통한다.
-//   상위 0.5% 이내: 이미 보고 있는 분야 (예: 재즈 영상을 보는 사람에게 "재즈")
-//   상위 ~3%:      관심사와 이어지지만 평소엔 안 보는 분야  ← 기본 목표
-//   그 밖:          연결고리가 거의 없는 분야
+// 실제 데이터(주제 6,741개, 중심화한 e5 벡터)로 본 감각:
+//   상위 0.5% 이내: 이미 보고 있는 분야 (음악 → 클래식 음악, 가창)
+//   상위 1~3%:     관심사와 이어지지만 평소엔 안 보는 분야 (음악 → 펑크, 녹음과 재생, 리듬)  ← 기본 목표
+//   상위 6% 밖:     연결고리가 거의 안 보이는 분야
 
 import { dot } from './vector.js';
 
-export const DEFAULT_PREFS = Object.freeze({ targetRank: 0.03 });
+export const DEFAULT_PREFS = Object.freeze({ targetRank: 0.015 });
 export const RANK_MIN = 0.003;
-export const RANK_MAX = 0.3;
+export const RANK_MAX = 0.08;
 const RANK_STEP = 1.3; // 반응 한 번에 목표 순위를 30%씩 옮긴다
 const SPREAD = 0.6; // 로그 스케일 표준편차
 const MIN_CLUSTER_WEIGHT = 0.08;
 const REPEAT_COOLDOWN_DAYS = 90;
-const DISLIKE_SIMILARITY = 0.9; // 싫어요한 주제와 이만큼 비슷한 주제는 점수를 깎는다
+const DISLIKE_SIMILARITY = 0.6; // 싫어요한 주제와 이만큼 비슷한 주제는 점수를 깎는다 (중심화 공간: 과당~포도당 0.79, 공수도~유도 0.51)
 const DISLIKE_PENALTY = 0.3;
 
 /**

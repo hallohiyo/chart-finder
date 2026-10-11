@@ -59,3 +59,25 @@ test('내장 데이터 만들기 → 파일로 저장 → 확장 프로그램에
 test('내장 파일이 없으면 무엇을 해야 하는지 알려준다', async () => {
   await assert.rejects(loadBundledTopics((p) => p, async () => ({ ok: false })), /update\.bat/);
 });
+
+test('중심화: 모든 주제가 공유하는 방향을 빼서, 뜻이 다른 주제끼리의 유사도를 낮춘다', async () => {
+  const { prepareIndex, toTopicSpace } = await import('../extension/src/lib/topic-space.js');
+  const D = 4;
+  // 모두 [1,0,0,0] 쪽으로 쏠린 벡터들 (e5 처럼 유사도가 한쪽에 몰린 상황)
+  const raw = [
+    [1, 0.2, 0, 0],
+    [1, 0, 0.2, 0],
+    [1, 0, 0, 0.2],
+  ].map((v) => Float32Array.from(v.map((x) => x / Math.hypot(...v))));
+  const flat = new Float32Array(3 * D);
+  raw.forEach((v, i) => flat.set(v, i * D));
+  const before = dot(raw[0], raw[1]);
+  const index = prepareIndex({ meta: { dim: D }, topics: [{}, {}, {}], vectors: flat });
+  const after = dot(index.vectors.subarray(0, D), index.vectors, D);
+  assert.ok(before > 0.9, `before ${before}`);
+  assert.ok(after < 0, `after ${after}`);
+  // 영상 벡터도 같은 평균을 빼서 같은 공간으로 옮긴다
+  const video = toTopicSpace(raw[0], index);
+  assert.ok(dot(video, index.vectors, 0) > 0.99);
+  assert.ok(Math.abs(Math.hypot(...video) - 1) < 1e-6);
+});

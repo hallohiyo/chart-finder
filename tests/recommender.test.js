@@ -28,16 +28,16 @@ test('관심사 바로 옆도, 아주 먼 것도 아닌 상위 몇 % 의 주제�
   const rec = recommend({ interestMap: map, index, dateKey });
   assert.ok(rec);
   const r = rankOf(rec);
-  assert.ok(r > 0.01 && r < 0.09, `rank ${r}`);
+  assert.ok(r > 0.005 && r < 0.04, `rank ${r}`);
   assert.ok(Math.abs(rec.rank - r) < 0.002, '보고된 순위가 실제 순위와 같아야 함');
 });
 
 test('목표 순위를 바꾸면 그만큼 멀거나 가까운 주제를 고른다', () => {
   const { index, map } = setup();
   const near = rankOf(recommend({ interestMap: map, index, dateKey, prefs: { targetRank: 0.01 } }));
-  const far = rankOf(recommend({ interestMap: map, index, dateKey, prefs: { targetRank: 0.2 } }));
-  assert.ok(near < 0.03, `near ${near}`);
-  assert.ok(far > 0.1, `far ${far}`);
+  const far = rankOf(recommend({ interestMap: map, index, dateKey, prefs: { targetRank: 0.08 } }));
+  assert.ok(near < 0.02, `near ${near}`);
+  assert.ok(far > 0.04, `far ${far}`);
 });
 
 test('최근 추천한 주제와 싫어요한 주제는 다시 고르지 않는다', () => {

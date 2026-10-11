@@ -4,8 +4,8 @@ import { dot, normalize } from './vector.js';
 
 const DAY = 24 * 60 * 60 * 1000;
 const HALF_LIFE_DAYS = 30;
-const MAX_CLUSTERS = 5;
-const VIDEOS_PER_CLUSTER = 6;
+const MAX_CLUSTERS = 8;
+const VIDEOS_PER_CLUSTER = 4;
 const KMEANS_ITERATIONS = 20;
 
 /** 영상 1개의 가중치: 최근일수록, 여러 번 볼수록 크다 (반복은 로그로 완화) */

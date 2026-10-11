@@ -2,8 +2,9 @@
 // 목표 순위(targetRank)를 정할 때 이 표를 보고 판단한다.
 
 import { buildInterestMap } from '../extension/src/lib/interest-map.js';
-import { scoreTopics } from '../extension/src/lib/recommender.js';
+import { scoreTopics, DEFAULT_PREFS } from '../extension/src/lib/recommender.js';
 import { dot } from '../extension/src/lib/vector.js';
+import { prepareIndex, toTopicSpace } from '../extension/src/lib/topic-space.js';
 
 export const SAMPLE_PROFILES = {
   '음악': ['아이유 라이브 클립 모음', '재즈 피아노 플레이리스트 카페에서 듣기 좋은', '기타 코드 진행 쉽게 배우기', '밴드 합주 커버 영상', '힙합 앨범 리뷰 올해의 명반', '오케스트라 클래식 명곡 모음'],
@@ -14,10 +15,11 @@ export const SAMPLE_PROFILES = {
   '섞임 (축구+역사)': ['손흥민 골 하이라이트', '프리미어리그 이번 주 리뷰', '월드컵 명장면', '조선왕조 이야기 세종대왕', '로마 제국은 왜 멸망했나', '2차 세계대전 다큐멘터리'],
 };
 
-const TARGETS = [0.01, 0.03, 0.1];
+const TARGETS = [0.008, 0.015, 0.03, 0.06];
 
 export async function buildReport({ topics, vectors, dim, embedTexts, meta }) {
-  const index = { topics, vectors, dim };
+  // 확장 프로그램과 똑같이 중심화한 공간에서 본다 (vectors 를 바꾸지 않도록 복사)
+  const index = prepareIndex({ meta: { ...meta, dim }, topics, vectors: Float32Array.from(vectors) });
   const now = Date.now();
   const lines = [
     '# 내장 주제 데이터 보고서',
@@ -26,17 +28,17 @@ export async function buildReport({ topics, vectors, dim, embedTexts, meta }) {
     `- 주제 수: ${meta.count}개 (${meta.diagnostics})`,
     `- 모델: ${meta.model}`,
     '',
-    '가상의 시청 기록으로 뽑아 본 추천입니다. "가장 가까운 주제"는 너무 가까워서 피해야 하는 쪽,',
-    '각 목표 순위 열은 그 설정에서 점수가 높은 후보 5개입니다.',
+    '가상의 시청 기록으로 뽑아 본 추천입니다 (확장 프로그램과 같은 중심화 공간). "가장 가까운 주제"는 너무 가까워서',
+    `피해야 하는 쪽, 각 목표 순위 행은 그 설정에서 점수가 높은 후보 5개입니다. 기본값은 상위 ${DEFAULT_PREFS.targetRank * 100}%.`,
     '',
   ];
   for (const [name, titles] of Object.entries(SAMPLE_PROFILES)) {
     const videos = titles.map((title, i) => ({ id: `v${i}`, title, lastSeen: now - i * 3600e3, count: 1 }));
     const vecs = await embedTexts(titles);
-    const map = buildInterestMap(videos, new Map(videos.map((v, i) => [v.id, vecs[i]])), now);
+    const map = buildInterestMap(videos, new Map(videos.map((v, i) => [v.id, toTopicSpace(vecs[i], index)])), now);
 
     const nearest = [...topics.keys()]
-      .map((t) => ({ t, s: Math.max(...map.clusters.map((c) => dot(c.centroid, vectors, t * dim))) }))
+      .map((t) => ({ t, s: Math.max(...map.clusters.map((c) => dot(c.centroid, index.vectors, t * dim))) }))
       .sort((a, b) => b.s - a.s)
       .slice(0, 8)
       .map(({ t, s }) => `${topics[t].title} (${s.toFixed(3)})`);
