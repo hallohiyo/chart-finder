@@ -39,3 +39,7 @@ body { width: auto; }
   border-radius: 3px;
   background: linear-gradient(to right, var(--accent) var(--w), var(--border) var(--w));
 }
+
+.examples { margin: 2px 0 0; padding-left: 16px; font-size: 13px; }
+.examples li { margin: 0; }
+.progress { margin: 8px 0 12px; height: 6px; border-radius: 3px; background: var(--border); overflow: hidden; }

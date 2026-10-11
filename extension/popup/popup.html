@@ -24,10 +24,11 @@
     <article class="card">
       <p class="eyebrow">오늘의 주제</p>
       <h1 class="title"></h1>
-      <p class="reason"></p>
-      <p class="anchor muted"></p>
       <p class="summary"></p>
-      <a class="more" target="_blank" rel="noopener noreferrer">위키백과에서 더 알아보기 ↗</a>
+      <div class="links">
+        <a class="more wiki" target="_blank" rel="noopener noreferrer">위키백과에서 읽기 ↗</a>
+        <a class="more youtube" target="_blank" rel="noopener noreferrer">유튜브에서 찾아보기 ↗</a>
+      </div>
       <div class="reactions">
         <button class="react" data-reaction="like">😄 재밌어요</button>
         <button class="react" data-reaction="dislike">🤔 별로예요</button>
@@ -41,6 +42,7 @@
     <section class="empty">
       <h1 class="empty-title"></h1>
       <p class="empty-body muted"></p>
+      <div class="progress" hidden><div class="progress-bar"></div></div>
       <button class="secondary to-options" hidden>설정 열기</button>
     </section>
   </template>

@@ -17,7 +17,8 @@
       <ul class="privacy">
         <li><strong>youtube.com 시청 페이지만</strong> 감지해요. 다른 사이트는 읽지 않아요.</li>
         <li>15초 이상 머문 영상의 <strong>ID와 제목</strong>만 저장해요.</li>
-        <li>모든 데이터는 <strong>이 브라우저에만</strong> 저장되고, 관심 분석과 추천도 브라우저 안에서 계산돼요. 개발자 서버는 없어요.</li>
+        <li>시청 기록은 <strong>이 브라우저에만</strong> 저장되고, 관심사 분석도 브라우저 안의 AI 모델로 계산돼요. 개발자 서버는 없어요.</li>
+        <li>처음 한 번 <strong>Hugging Face</strong>에서 분석 모델(약 120MB)을, <strong>위키백과</strong>에서 주제 목록을 받아와요. 이때 시청 기록은 보내지 않아요.</li>
         <li>API 키를 넣으면 영상 ID만 YouTube Data API(Google)로 보내 제목·설명·태그를 받아와요.</li>
         <li>시크릿 모드에서는 동작하지 않아요. 언제든 수집을 멈추거나 데이터를 지울 수 있어요.</li>
       </ul>
@@ -61,6 +62,17 @@
       </p>
       <button id="import">유튜브 시청 기록 가져오기</button>
       <span id="import-status" class="muted"></span>
+    </section>
+
+    <section class="card">
+      <h2>추천 주제 목록</h2>
+      <p class="muted">
+        영어 위키백과 편집자들이 고른 핵심 문서 목록(<a href="https://en.wikipedia.org/wiki/Wikipedia:Vital_articles/Level/4" target="_blank" rel="noopener noreferrer">Vital articles Level 4</a>) 중
+        한국어 문서가 있는 주제에서 골라요. 주제 사이의 거리는 다국어 문장 임베딩 모델(multilingual-e5-small)로 재요.
+      </p>
+      <p id="index-status"></p>
+      <div class="progress" id="index-progress" hidden><div class="progress-bar"></div></div>
+      <button id="rebuild">주제 목록 다시 받기</button>
     </section>
 
     <section class="card">

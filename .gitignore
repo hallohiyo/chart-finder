@@ -1,2 +1,5 @@
 node_modules/
 *.zip
+tests/e2e/*.png
+# npm run build 로 생성 (Transformers.js + ONNX Runtime wasm)
+extension/vendor/

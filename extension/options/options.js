@@ -1,3 +1,5 @@
+import { describeIndexStatus } from '../popup/status.js';
+
 const $ = (id) => document.getElementById(id);
 
 async function send(type, payload = {}) {
@@ -18,9 +20,18 @@ function render(overview) {
       : ' 모든 영상의 메타데이터를 받아왔어요.'
     : '';
 
+  const { text, progress } = describeIndexStatus(overview.indexStatus);
+  $('index-status').textContent = overview.topicCount ? `주제 ${overview.topicCount}개 준비 완료` : text;
+  const bar = $('index-progress');
+  bar.hidden = overview.topicCount > 0 || progress == null;
+  bar.querySelector('.progress-bar').style.setProperty('--p', `${Math.round((progress ?? 0) * 100)}%`);
+  if (!overview.topicCount && overview.indexStatus?.phase !== 'error') pollSoon();
+
   $('map-summary').textContent = overview.clusters.length
-    ? `저장된 영상 ${overview.videoCount}개에서 찾은 관심 묶음이에요.`
-    : `아직 분석할 영상이 없어요 (저장된 영상 ${overview.videoCount}개).`;
+    ? `저장된 영상 ${overview.videoCount}개를 비슷한 것끼리 묶었어요.`
+    : overview.topicCount
+      ? `아직 분석할 영상이 없어요 (저장된 영상 ${overview.videoCount}개).`
+      : `주제 목록이 준비되면 보여드릴게요 (저장된 영상 ${overview.videoCount}개).`;
 
   $('clusters').replaceChildren(
     ...overview.clusters.map((c) => {
@@ -28,26 +39,36 @@ function render(overview) {
       const head = document.createElement('div');
       head.className = 'cluster-head';
       const name = document.createElement('strong');
-      name.textContent = c.domains.join(' · ');
+      name.textContent = `관심 묶음 · 영상 ${c.size}개`;
       const share = document.createElement('span');
       share.className = 'muted';
-      share.textContent = `${c.weight}% · 영상 ${c.size}개`;
+      share.textContent = `${c.weight}%`;
       head.append(name, share);
-      const bar = document.createElement('div');
-      bar.className = 'bar';
-      bar.style.setProperty('--w', `${c.weight}%`);
-      const rep = document.createElement('small');
-      rep.className = 'muted';
-      rep.textContent = `대표 영상: ${c.representative || '(제목 없음)'}`;
-      li.append(head, bar, rep);
+      const barEl = document.createElement('div');
+      barEl.className = 'bar';
+      barEl.style.setProperty('--w', `${c.weight}%`);
+      const ex = document.createElement('ul');
+      ex.className = 'examples muted';
+      for (const title of c.examples) {
+        const item = document.createElement('li');
+        item.textContent = title;
+        ex.append(item);
+      }
+      li.append(head, barEl, ex);
       return li;
     }),
   );
 
-  const pct = Math.round(overview.targetDistance * 100);
+  const pct = Math.round(overview.targetRank * 1000) / 10;
   $('distance').textContent =
-    `현재 추천 거리: ${pct} / 100 (낮을수록 익숙한 주제, 높을수록 낯선 주제) · ` +
+    `현재 추천 거리: 관심사와 가까운 상위 ${pct}% 근처 주제 (재밌어요 → 더 멀리, 별로예요 → 더 가까이) · ` +
     `반응 — 재밌어요 ${overview.reactions.like}번, 별로예요 ${overview.reactions.dislike}번`;
+}
+
+let pollTimer = null;
+function pollSoon() {
+  clearTimeout(pollTimer);
+  pollTimer = setTimeout(refresh, 3000);
 }
 
 async function refresh() {
@@ -87,6 +108,15 @@ $('import').addEventListener('click', async () => {
   } finally {
     await chrome.permissions.remove({ permissions: ['history'] });
     refresh();
+  }
+});
+
+$('rebuild').addEventListener('click', async () => {
+  if (!confirm('위키백과에서 주제 목록을 다시 받고 분석할까요? 몇 분 걸려요.')) return;
+  try {
+    render(await send('rebuildIndex'));
+  } catch (err) {
+    $('index-status').textContent = err.message;
   }
 });
 

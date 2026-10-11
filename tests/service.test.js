@@ -3,14 +3,51 @@ import assert from 'node:assert/strict';
 import { createStore, pruneVideos, upsertVideo, localDateKey } from '../extension/src/lib/store.js';
 import { createService, MIN_VIDEOS } from '../extension/src/lib/service.js';
 import { parseWatchUrl, cleanPageTitle, fetchVideoMetadata } from '../extension/src/lib/youtube.js';
-import { memoryStorage, MUSIC_TITLES } from './helpers.js';
+import { fetchSummary } from '../extension/src/lib/wiki.js';
+import { createEngine } from '../extension/src/lib/engine.js';
+import { memoryStorage, memoryKv, fakeEmbed, fakeWikiFetch, FAKE_DIM } from './helpers.js';
+
+const ROOT = 'Wikipedia:Vital articles/Level/4';
+const MUSIC_TITLES = ['재즈 피아노 연주', '기타 코드 진행', '밴드 라이브 공연', '힙합 앨범 감상', '클래식 오케스트라', '드럼 연주 영상'];
+
+// 음악·과학·요리 단어가 섞인 가짜 주제 300개
+function wiki() {
+  const words = ['음악', '재즈', '피아노', '음향', '물리', '요리', '역사', '수학', '공연', '연주', '화학', '건축'];
+  const links = [];
+  const langlinks = {};
+  const descriptions = {};
+  for (let i = 0; i < 300; i++) {
+    const en = `Topic ${i}`;
+    const ko = `주제${i}`;
+    links.push({ ns: 0, title: en });
+    langlinks[en] = ko;
+    descriptions[ko] = `${words[i % words.length]} ${words[(i * 7) % words.length]} ${words[(i * 5 + 3) % words.length]}`;
+  }
+  return fakeWikiFetch({
+    vital: { [`${ROOT}/Arts`]: links },
+    langlinks,
+    descriptions,
+    summaries: Object.fromEntries(Object.values(langlinks).map((t) => [t, { extract: `${t} 요약`, content_urls: { desktop: { page: `https://ko.wikipedia.org/wiki/${t}` } } }])),
+  });
+}
 
 function setup(startAt = Date.parse('2026-10-11T09:00:00')) {
   const storage = memoryStorage();
   const store = createStore(storage);
   const clock = { t: startAt };
-  const service = createService(store, { now: () => clock.t, fetchImpl: () => assert.fail('network not expected') });
-  return { storage, store, service, clock };
+  const { impl } = wiki();
+  const engine = createEngine({ kv: memoryKv(), fetchImpl: impl, embedTexts: fakeEmbed, dim: FAKE_DIM, onStatus: (s) => store.setIndexStatus(s) });
+  const service = createService(store, engine, {
+    now: () => clock.t,
+    fetchImpl: () => assert.fail('network not expected'),
+    fetchSummary: (title) => fetchSummary(impl, title),
+  });
+  return { storage, store, service, clock, engine };
+}
+
+async function ready(service, engine, clock) {
+  await watchAll(service, MUSIC_TITLES, clock);
+  await engine.ensureIndex();
 }
 
 async function watchAll(service, titles, clock) {
@@ -40,9 +77,32 @@ test('기록이 부족하면 수집 중 상태를 알려준다', async () => {
   assert.equal(today.videoCount, MIN_VIDEOS - 1);
 });
 
-test('하루 추천 한도를 지키고, 같은 날에는 같은 추천을 보여준다', async () => {
-  const { service, clock } = setup();
+test('주제 목록이 없으면 준비 상태를 보여주고 만들기 시작한다', async () => {
+  const { service, engine, clock } = setup();
   await watchAll(service, MUSIC_TITLES, clock);
+  const first = await service.getToday();
+  assert.equal(first.status, 'preparing');
+  assert.ok(engine.isBuilding(), '목록 만들기가 시작됨');
+  await engine.ensureIndex();
+  const after = await service.getToday();
+  assert.equal(after.status, 'ready');
+  assert.equal(after.indexStatus.phase, 'ready');
+});
+
+test('추천에는 요약과 위키백과·유튜브 링크가 붙고, 연결 이유는 없다', async () => {
+  const { service, engine, clock } = setup();
+  await ready(service, engine, clock);
+  const { recommendation: rec } = await service.getToday();
+  assert.match(rec.title, /^주제\d+$/);
+  assert.equal(rec.summary, `${rec.title} 요약`);
+  assert.equal(rec.url, `https://ko.wikipedia.org/wiki/${rec.title}`);
+  assert.equal(rec.youtubeUrl, `https://www.youtube.com/results?search_query=${encodeURIComponent(rec.title)}`);
+  assert.equal(rec.reason, undefined);
+});
+
+test('하루 추천 한도를 지키고, 같은 날에는 같은 추천을 보여준다', async () => {
+  const { service, engine, clock } = setup();
+  await ready(service, engine, clock);
 
   const a = await service.getToday();
   assert.equal(a.status, 'ready');
@@ -66,10 +126,19 @@ test('하루 추천 한도를 지키고, 같은 날에는 같은 추천을 보�
   assert.equal(tomorrow.recommendation.reaction, null);
 });
 
+test('팝업을 동시에 여러 번 열어도 추천은 하나만 만든다', async () => {
+  const { service, engine, clock, store } = setup();
+  await ready(service, engine, clock);
+  const results = await Promise.all([service.getToday(), service.getToday(), service.getToday()]);
+  assert.equal(new Set(results.map((r) => r.recommendation.topicId)).size, 1);
+  assert.equal((await store.getDaily()).recs.length, 1);
+  assert.equal((await store.getRecLog()).length, 1);
+});
+
 test('한도를 늘리면 반응 후 하나 더 받을 수 있다', async () => {
-  const { service, store, clock } = setup();
+  const { service, store, engine, clock } = setup();
   await store.updateSettings({ maxPerDay: 2 });
-  await watchAll(service, MUSIC_TITLES, clock);
+  await ready(service, engine, clock);
   const first = await service.getToday();
   const afterReact = await service.react(first.recommendation.topicId, 'dislike');
   assert.equal(afterReact.canGetMore, true);
@@ -81,14 +150,25 @@ test('한도를 늘리면 반응 후 하나 더 받을 수 있다', async () => 
 });
 
 test('반응은 한 번만 선호도에 반영된다', async () => {
-  const { service, store, clock } = setup();
-  await watchAll(service, MUSIC_TITLES, clock);
+  const { service, store, engine, clock } = setup();
+  await ready(service, engine, clock);
   const { recommendation } = await service.getToday();
   await service.react(recommendation.topicId, 'dislike');
-  const once = (await store.getPrefs()).targetDistance;
+  const once = (await store.getPrefs()).targetRank;
   await service.react(recommendation.topicId, 'dislike');
-  assert.equal((await store.getPrefs()).targetDistance, once);
-  assert.ok(once < 0.45);
+  assert.equal((await store.getPrefs()).targetRank, once);
+  assert.ok(once < 0.03);
+});
+
+test('설정 페이지 개요: 주제 수와 관심 묶음 예시 영상', async () => {
+  const { service, store, engine, clock } = setup();
+  await store.updateSettings({ apiKey: 'AIzaSECRET1234' });
+  await ready(service, engine, clock);
+  const o = await service.overview();
+  assert.equal(o.settings.apiKey, '••••1234');
+  assert.equal(o.topicCount, 300);
+  assert.ok(o.clusters.length >= 1);
+  assert.ok(o.clusters.every((c) => c.examples.every((t) => MUSIC_TITLES.includes(t))));
 });
 
 test('일시정지 중에는 기록하지 않고, 잘못된 ID도 무시한다', async () => {
@@ -113,7 +193,7 @@ test('API 키가 있으면 메타데이터를 채운다', async () => {
       }),
     };
   };
-  const service = createService(store, { fetchImpl });
+  const service = createService(store, null, { fetchImpl });
   await service.recordWatch({ videoId: 'dQw4w9WgXcQ', title: '페이지 제목' });
   await service.recordWatch({ videoId: 'aaaaaaaaaaa', title: '삭제된 영상' });
 
@@ -150,10 +230,10 @@ test('재시청은 30분 간격으로만 센다, 오래된 기록은 지운다',
 });
 
 test('데이터 삭제는 설정을 남긴다', async () => {
-  const { service, store, clock } = setup();
+  const { service, store, clock, engine } = setup();
   await store.updateSettings({ apiKey: 'KEY', maxPerDay: 9 });
   assert.equal((await store.getSettings()).maxPerDay, 3, '한도는 3개로 제한');
-  await watchAll(service, MUSIC_TITLES, clock);
+  await ready(service, engine, clock);
   await service.getToday();
   await store.clearData();
   assert.deepEqual(await store.getVideos(), {});
@@ -167,11 +247,4 @@ test('동시 기록도 유실되지 않는다', async () => {
     Array.from({ length: 20 }, (_, i) => service.recordWatch({ videoId: `con${String(i).padStart(8, '0')}`, title: '재즈' })),
   );
   assert.equal(Object.keys(await store.getVideos()).length, 20);
-});
-
-test('개요는 API 키를 가린다', async () => {
-  const { service, store } = setup();
-  await store.updateSettings({ apiKey: 'AIzaSECRET1234' });
-  const o = await service.overview();
-  assert.equal(o.settings.apiKey, '••••1234');
 });

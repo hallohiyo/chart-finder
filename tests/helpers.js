@@ -16,15 +16,49 @@ export function memoryStorage(initial = {}) {
   };
 }
 
+// IndexedDB kv 대용
+export function memoryKv() {
+  const m = new Map();
+  return {
+    map: m,
+    get: async (k) => (m.has(k) ? structuredClone(m.get(k)) : undefined),
+    set: async (k, v) => void m.set(k, structuredClone(v)),
+    delete: async (k) => void m.delete(k),
+  };
+}
+
+/** 단위 벡터: 첫 두 축 평면에서 angle(라디안) 방향 */
+export function angleVec(angle, dim = 8) {
+  const v = new Float32Array(dim);
+  v[0] = Math.cos(angle);
+  v[1] = Math.sin(angle);
+  return v;
+}
+
+/** 단어 가방 해시 임베딩: 단어가 겹칠수록 가깝다. 실제 모델 대신 테스트에서 쓴다 */
+export const FAKE_DIM = 64;
+export async function fakeEmbed(texts) {
+  return texts.map((t) => {
+    const v = new Float32Array(FAKE_DIM);
+    for (const w of t.toLowerCase().split(/[^\p{L}\p{N}]+/u).filter(Boolean)) {
+      let h = 0;
+      for (const ch of w) h = (h * 31 + ch.codePointAt(0)) >>> 0;
+      v[h % FAKE_DIM] += 1;
+    }
+    let n = Math.hypot(...v) || 1;
+    return v.map((x) => x / n);
+  });
+}
+
 const DAY = 86400000;
 
-export function videos(titles, { categoryId = null, now = Date.now(), prefix = 'v' } = {}) {
+export function videos(titles, { now = Date.now(), prefix = 'v' } = {}) {
   return titles.map((title, i) => ({
     id: `${prefix}${String(i).padStart(10, '0')}`.slice(0, 11),
     title,
     description: '',
     tags: [],
-    categoryId,
+    categoryId: null,
     firstSeen: now - i * DAY,
     lastSeen: now - i * DAY,
     count: 1,
@@ -32,20 +66,34 @@ export function videos(titles, { categoryId = null, now = Date.now(), prefix = '
   }));
 }
 
-export const MUSIC_TITLES = [
-  '아이유 노래 라이브 클립',
-  '재즈 피아노 플레이리스트',
-  '기타 코드 진행 강좌',
-  '밴드 커버 공연',
-  '힙합 앨범 리뷰',
-  '오케스트라 클래식 명곡',
-];
-
-export const GAME_TITLES = [
-  '젤다 보스전 공략',
-  '마인크래프트 생존 1화',
-  '닌텐도 신작 게임',
-  '포켓몬 게임 플레이',
-  'fps 게임 매드무비',
-  '인디게임 추천',
-];
+/** 가짜 MediaWiki API. 실제 응답 모양(formatversion=2)을 흉내 낸다 */
+export function fakeWikiFetch({ vital, langlinks, descriptions, summaries = {} }) {
+  const calls = [];
+  const json = (body, ok = true) => ({ ok, status: ok ? 200 : 500, json: async () => body });
+  const impl = async (url) => {
+    calls.push(url);
+    const u = new URL(url);
+    const p = u.searchParams;
+    if (u.pathname.startsWith('/api/rest_v1/page/summary/')) {
+      const title = decodeURIComponent(u.pathname.split('/').pop()).replaceAll('_', ' ');
+      return summaries[title] ? json(summaries[title]) : json({}, false);
+    }
+    const titles = (p.get('titles') ?? '').split('|');
+    if (p.get('prop') === 'links') {
+      const links = vital[titles[0]] ?? [];
+      return json({ query: { pages: [{ title: titles[0], links }] } });
+    }
+    if (p.get('prop') === 'langlinks') {
+      return json({
+        query: {
+          pages: titles.map((t) => ({ title: t, ...(langlinks[t] ? { langlinks: [{ lang: 'ko', title: langlinks[t] }] } : {}) })),
+        },
+      });
+    }
+    if (p.get('prop') === 'description') {
+      return json({ query: { pages: titles.map((t) => ({ title: t, ...(descriptions[t] ? { description: descriptions[t] } : {}) })) } });
+    }
+    throw new Error(`unexpected request ${url}`);
+  };
+  return { impl, calls };
+}

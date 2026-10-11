@@ -54,15 +54,14 @@ main { padding: 0 12px; }
 .eyebrow { margin: 0; font-size: 12px; color: var(--muted); }
 .title { margin: 2px 0 10px; font-size: 20px; letter-spacing: -0.02em; }
 
-.reason {
-  margin: 0 0 6px;
-  padding: 10px 12px;
-  background: var(--accent-soft);
-  border-radius: 10px;
+.summary {
+  margin: 0 0 10px;
+  display: -webkit-box;
+  -webkit-line-clamp: 7;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
-
-.anchor { margin: 0 0 10px; font-size: 12px; }
-.summary { margin: 0 0 10px; }
+.links { display: flex; gap: 14px; flex-wrap: wrap; }
 .more { color: var(--accent); font-size: 13px; text-decoration: none; }
 .more:hover { text-decoration: underline; }
 
@@ -99,3 +98,6 @@ button {
 .empty-body { margin: 0; }
 
 footer { font-size: 12px; }
+
+.progress { margin-top: 12px; height: 6px; border-radius: 3px; background: var(--border); overflow: hidden; }
+.progress-bar { height: 100%; width: var(--p, 0%); background: var(--accent); transition: width 0.3s; }

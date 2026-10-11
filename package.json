@@ -1,11 +1,17 @@
 {
   "name": "slightly-off-recommender",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
   "description": "유튜브 시청 기록 기반 '살짝 빗나간' 지식 추천 크롬 확장 프로그램",
   "scripts": {
+    "build": "node scripts/build.mjs",
     "test": "node --test 'tests/*.test.js'",
+    "test:e2e": "PW_EXPERIMENTAL_SERVICE_WORKER_NETWORK_EVENTS=1 node tests/e2e/run.cjs",
     "package": "cd extension && zip -r ../slightly-off.zip . -x '.*'"
+  },
+  "devDependencies": {
+    "@huggingface/transformers": "^4.3.1",
+    "esbuild": "^0.28.2"
   }
 }

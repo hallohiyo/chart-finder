@@ -94,6 +94,9 @@ export function createStore(storage) {
         return next ?? state;
       }),
 
+    getIndexStatus: () => get('indexStatus', { phase: 'idle' }),
+    setIndexStatus: (status) => set('indexStatus', status),
+
     /** 설정(API 키 등)은 남기고 수집/추천 데이터만 지운다 */
     clearData: () => exclusive(() => storage.remove(['videos', 'prefs', 'recLog', 'daily'])),
   };
