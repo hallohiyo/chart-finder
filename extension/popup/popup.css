@@ -1,0 +1,101 @@
+:root {
+  --bg: #fbfaf7;
+  --fg: #1f1d1a;
+  --muted: #6f6a62;
+  --accent: #d9622b;
+  --accent-soft: #fbe6da;
+  --card: #ffffff;
+  --border: #e8e3da;
+  color-scheme: light dark;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #1b1a18;
+    --fg: #f1ede6;
+    --muted: #a49d92;
+    --accent: #f08a55;
+    --accent-soft: #3a2a20;
+    --card: #252320;
+    --border: #3a3631;
+  }
+}
+
+* { box-sizing: border-box; }
+
+body {
+  width: 360px;
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font: 14px/1.55 -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Malgun Gothic", "Noto Sans KR", sans-serif;
+}
+
+header, footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 16px;
+}
+
+.brand { font-weight: 700; color: var(--accent); letter-spacing: -0.02em; }
+.counter { font-size: 12px; color: var(--muted); }
+.muted { color: var(--muted); }
+
+main { padding: 0 12px; }
+
+.card, .empty {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 16px;
+}
+
+.eyebrow { margin: 0; font-size: 12px; color: var(--muted); }
+.title { margin: 2px 0 10px; font-size: 20px; letter-spacing: -0.02em; }
+
+.reason {
+  margin: 0 0 6px;
+  padding: 10px 12px;
+  background: var(--accent-soft);
+  border-radius: 10px;
+}
+
+.anchor { margin: 0 0 10px; font-size: 12px; }
+.summary { margin: 0 0 10px; }
+.more { color: var(--accent); font-size: 13px; text-decoration: none; }
+.more:hover { text-decoration: underline; }
+
+.reactions { display: flex; gap: 8px; margin-top: 14px; }
+
+button {
+  font: inherit;
+  cursor: pointer;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--card);
+  color: var(--fg);
+  padding: 8px 12px;
+}
+
+.react { flex: 1; }
+.react:hover:not(:disabled) { border-color: var(--accent); }
+.react:disabled { cursor: default; opacity: 0.5; }
+.react.chosen { opacity: 1; border-color: var(--accent); background: var(--accent-soft); }
+
+.secondary { width: 100%; margin-top: 10px; }
+.thanks { margin: 10px 0 0; font-size: 13px; }
+
+.link {
+  border: none;
+  background: none;
+  padding: 0;
+  color: var(--muted);
+  font-size: 12px;
+  text-decoration: underline;
+}
+
+.empty-title { margin: 0 0 6px; font-size: 16px; }
+.empty-body { margin: 0; }
+
+footer { font-size: 12px; }

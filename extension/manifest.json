@@ -1,0 +1,42 @@
+{
+  "manifest_version": 3,
+  "name": "살짝 빗나간 추천",
+  "short_name": "살짝 빗나간",
+  "version": "0.1.0",
+  "description": "유튜브 시청 기록으로 관심사를 파악하고, 평소엔 안 보지만 관심사와 이어지는 주제를 하루 하나씩 추천합니다. 데이터는 내 브라우저에만 저장됩니다.",
+  "minimum_chrome_version": "120",
+  "permissions": ["storage", "alarms"],
+  "optional_permissions": ["history"],
+  "host_permissions": ["https://www.googleapis.com/youtube/v3/*"],
+  "background": {
+    "service_worker": "src/background.js",
+    "type": "module"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://www.youtube.com/*"],
+      "js": ["src/content.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "action": {
+    "default_popup": "popup/popup.html",
+    "default_title": "오늘의 살짝 빗나간 추천",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "32": "icons/icon32.png",
+      "48": "icons/icon48.png"
+    }
+  },
+  "options_ui": {
+    "page": "options/options.html",
+    "open_in_tab": true
+  },
+  "icons": {
+    "16": "icons/icon16.png",
+    "32": "icons/icon32.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "incognito": "not_allowed"
+}

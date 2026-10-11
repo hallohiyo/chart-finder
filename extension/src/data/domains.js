@@ -1,0 +1,76 @@
+// 관심 지도의 축이 되는 "도메인" 사전.
+// 영상과 추천 주제는 모두 이 도메인 공간 위의 벡터로 표현된다 (ESA 방식의 개념 임베딩).
+// keywords: 소문자. 영문은 단어 경계로, 한글은 부분 문자열로 매칭한다.
+
+export const DOMAINS = [
+  { id: 'music', label: '음악', keywords: ['음악', '노래', '가사', '앨범', '작곡', '편곡', '멜로디', '화음', '코드 진행', '기타 연주', '피아노', '드럼', '베이스', '보컬', '밴드', '오케스트라', '클래식', '재즈', '힙합', '플레이리스트', '커버', 'music', 'song', 'album', 'lyrics', 'guitar', 'piano', 'drum', 'jazz', 'hip hop', 'playlist', 'concert', 'cover', 'mv', 'remix'] },
+  { id: 'film', label: '영화·애니메이션', keywords: ['영화', '애니', '애니메이션', '감독', '배우', '시네마', '예고편', '결말', '드라마', '넷플릭스', '마블', '지브리', '픽사', 'movie', 'film', 'cinema', 'anime', 'trailer', 'director', 'netflix', 'marvel', 'pixar', 'ghibli'] },
+  { id: 'games', label: '게임', keywords: ['게임', '공략', '리그오브레전드', '마인크래프트', '배그', '스팀', '닌텐도', '플스', '플레이스테이션', '엑스박스', 'rpg', 'fps', '보스전', '스피드런', '인디게임', 'game', 'gaming', 'gameplay', 'minecraft', 'nintendo', 'playstation', 'xbox', 'steam', 'esports', 'speedrun', 'zelda', 'pokemon', '포켓몬', '젤다'] },
+  { id: 'sports', label: '스포츠', keywords: ['축구', '야구', '농구', '배구', '테니스', '골프', '선수', '리그', '월드컵', '올림픽', '프리미어리그', 'kbo', 'mlb', 'nba', 'f1', '포뮬러', 'football', 'soccer', 'baseball', 'basketball', 'tennis', 'golf', 'olympics', 'premier league', 'ufc', '격투기'] },
+  { id: 'cooking', label: '요리·음식', keywords: ['요리', '레시피', '먹방', '맛집', '음식', '베이킹', '빵', '디저트', '커피', '와인', '김치', '라면', '고기', '스테이크', '셰프', '편의점', 'cooking', 'recipe', 'food', 'baking', 'chef', 'coffee', 'wine', 'mukbang', 'kitchen'] },
+  { id: 'travel', label: '여행·지리', keywords: ['여행', '브이로그', '해외', '배낭', '도시', '지리', '지도', '관광', '호텔', '비행기', '항공', 'travel', 'trip', 'vlog', 'country', 'city', 'geography', 'map', 'flight', 'tour'] },
+  { id: 'cars', label: '자동차·탈것', keywords: ['자동차', '차량', '시승', '전기차', '테슬라', '엔진', '슈퍼카', '오토바이', '바이크', '기차', '철도', 'car', 'cars', 'vehicle', 'engine', 'tesla', 'supercar', 'motorcycle', 'train', 'porsche', 'bmw'] },
+  { id: 'animals', label: '동물', keywords: ['동물', '강아지', '고양이', '반려', '조류', '곤충', '공룡', '물고기', '야생', '사파리', 'animal', 'animals', 'dog', 'cat', 'puppy', 'kitten', 'bird', 'wildlife', 'insect', 'dinosaur', 'pet'] },
+  { id: 'biology', label: '생물·의학', keywords: ['생물', '세포', '유전자', 'dna', '진화', '의학', '질병', '바이러스', '면역', '뇌', '신경', '수면', '미생물', '건강검진', 'biology', 'cell', 'gene', 'evolution', 'medicine', 'virus', 'immune', 'brain', 'neuroscience', 'sleep'] },
+  { id: 'physics', label: '물리', keywords: ['물리', '양자', '상대성', '중력', '에너지', '전자기', '역학', '입자', '열역학', 'physics', 'quantum', 'relativity', 'gravity', 'particle', 'thermodynamics', 'einstein', '아인슈타인'] },
+  { id: 'space', label: '우주·천문', keywords: ['우주', '천문', '행성', '은하', '블랙홀', '로켓', '나사', '화성', '달 탐사', '별자리', '망원경', 'space', 'astronomy', 'planet', 'galaxy', 'black hole', 'rocket', 'nasa', 'spacex', 'mars', 'telescope'] },
+  { id: 'chemistry', label: '화학', keywords: ['화학', '원소', '분자', '실험', '주기율표', '화합물', 'chemistry', 'chemical', 'molecule', 'element', 'reaction', 'periodic table'] },
+  { id: 'math', label: '수학', keywords: ['수학', '증명', '방정식', '확률', '통계', '기하', '미적분', '수열', 'math', 'mathematics', 'proof', 'equation', 'probability', 'statistics', 'geometry', 'calculus', 'theorem'] },
+  { id: 'tech', label: '기술·IT', keywords: ['기술', '테크', '스마트폰', '아이폰', '갤럭시', '노트북', '언박싱', '반도체', '인공지능', 'ai', '로봇', '가젯', 'tech', 'technology', 'iphone', 'galaxy', 'laptop', 'unboxing', 'semiconductor', 'robot', 'gadget', 'apple', 'samsung'] },
+  { id: 'programming', label: '프로그래밍', keywords: ['프로그래밍', '코딩', '개발자', '알고리즘', '파이썬', '자바스크립트', '리액트', '서버', '데이터베이스', '오픈소스', 'programming', 'coding', 'developer', 'algorithm', 'python', 'javascript', 'rust', 'linux', 'github', 'software'] },
+  { id: 'history', label: '역사', keywords: ['역사', '조선', '고려', '삼국', '전쟁', '왕조', '제국', '고대', '중세', '근현대', '세계사', '한국사', '문명', 'history', 'historical', 'empire', 'ancient', 'medieval', 'war', 'civilization', 'dynasty'] },
+  { id: 'economics', label: '경제·금융', keywords: ['경제', '주식', '투자', '부동산', '금리', '환율', '코인', '비트코인', '재테크', '인플레이션', '시장', '기업', 'economy', 'economics', 'stock', 'invest', 'investing', 'finance', 'inflation', 'market', 'bitcoin'] },
+  { id: 'politics', label: '사회·정치', keywords: ['정치', '사회', '뉴스', '선거', '정책', '국회', '외교', '인권', '시사', 'politics', 'news', 'election', 'policy', 'society', 'law', 'government'] },
+  { id: 'psychology', label: '심리', keywords: ['심리', '심리학', '마음', '감정', '불안', '우울', '습관', '동기', '인지', '착각', '자존감', 'mbti', 'psychology', 'mind', 'emotion', 'anxiety', 'habit', 'motivation', 'cognitive', 'bias'] },
+  { id: 'philosophy', label: '철학', keywords: ['철학', '윤리', '존재', '니체', '칸트', '소크라테스', '사상', '인문학', 'philosophy', 'ethics', 'existential', 'nietzsche', 'kant', 'stoic', 'stoicism'] },
+  { id: 'language', label: '언어', keywords: ['언어', '영어', '일본어', '중국어', '외국어', '단어', '발음', '문법', '어원', '번역', '한글', '방언', 'language', 'english', 'japanese', 'grammar', 'pronunciation', 'etymology', 'translation', 'linguistics'] },
+  { id: 'art', label: '미술', keywords: ['미술', '그림', '드로잉', '회화', '화가', '전시', '미술관', '조각', '일러스트', '수채화', 'art', 'painting', 'drawing', 'artist', 'museum', 'illustration', 'sculpture'] },
+  { id: 'design', label: '디자인·건축', keywords: ['디자인', '건축', '인테리어', '가구', '공간', '도시', '랜드마크', '폰트', '타이포', '로고', 'design', 'architecture', 'interior', 'furniture', 'typography', 'font', 'logo', 'ux'] },
+  { id: 'fashion', label: '패션·뷰티', keywords: ['패션', '코디', '옷', '룩북', '하울', '메이크업', '화장품', '뷰티', '스킨케어', '향수', '스니커즈', 'fashion', 'outfit', 'lookbook', 'haul', 'makeup', 'beauty', 'skincare', 'perfume', 'sneakers'] },
+  { id: 'fitness', label: '운동·건강', keywords: ['운동', '헬스', '홈트', '다이어트', '근육', '스트레칭', '요가', '필라테스', '마라톤', '달리기', '식단', 'workout', 'fitness', 'gym', 'diet', 'muscle', 'yoga', 'running', 'marathon', 'stretching'] },
+  { id: 'literature', label: '문학·책', keywords: ['독서', '서평', '책 추천', '소설', '시집', '작가', '문학', '북튜버', '웹툰', '웹소설', 'book', 'books', 'novel', 'reading', 'author', 'literature', 'poetry'] },
+  { id: 'entertainment', label: '예능·방송', keywords: ['예능', '방송', '아이돌', '케이팝', 'k-pop', 'kpop', '유튜버', '스트리머', '밈', '코미디', '개그', '토크쇼', '챌린지', 'comedy', 'idol', 'meme', 'streamer', 'talk show', 'challenge', 'variety'] },
+];
+
+// 도메인 간 연관도 (대칭, 0~1). 임베딩 스무딩에 사용해 "가까운 이웃 분야"를 표현한다.
+export const DOMAIN_RELATIONS = [
+  ['music', 'physics', 0.4], ['music', 'math', 0.3], ['music', 'film', 0.5], ['music', 'psychology', 0.3],
+  ['music', 'language', 0.2], ['music', 'entertainment', 0.5],
+  ['film', 'literature', 0.5], ['film', 'art', 0.4], ['film', 'games', 0.5], ['film', 'entertainment', 0.6], ['film', 'space', 0.2],
+  ['games', 'programming', 0.5], ['games', 'math', 0.3], ['games', 'psychology', 0.3], ['games', 'tech', 0.4], ['games', 'entertainment', 0.3],
+  ['sports', 'fitness', 0.7], ['sports', 'physics', 0.3], ['sports', 'psychology', 0.3], ['sports', 'entertainment', 0.3],
+  ['cooking', 'chemistry', 0.5], ['cooking', 'travel', 0.5], ['cooking', 'biology', 0.3], ['cooking', 'history', 0.2], ['cooking', 'fitness', 0.3],
+  ['travel', 'history', 0.5], ['travel', 'language', 0.4], ['travel', 'design', 0.3],
+  ['cars', 'physics', 0.4], ['cars', 'tech', 0.5], ['cars', 'design', 0.3],
+  ['animals', 'biology', 0.7],
+  ['biology', 'chemistry', 0.5], ['biology', 'psychology', 0.3], ['biology', 'fitness', 0.4],
+  ['physics', 'space', 0.7], ['physics', 'math', 0.6], ['physics', 'chemistry', 0.5],
+  ['space', 'tech', 0.3], ['space', 'philosophy', 0.2],
+  ['math', 'programming', 0.5], ['math', 'economics', 0.4], ['math', 'philosophy', 0.3],
+  ['tech', 'programming', 0.7], ['tech', 'design', 0.3], ['tech', 'economics', 0.3],
+  ['history', 'politics', 0.6], ['history', 'art', 0.4], ['history', 'philosophy', 0.4], ['history', 'literature', 0.4], ['history', 'economics', 0.4],
+  ['economics', 'politics', 0.5], ['economics', 'psychology', 0.4],
+  ['politics', 'philosophy', 0.4],
+  ['psychology', 'philosophy', 0.4], ['psychology', 'language', 0.3],
+  ['philosophy', 'literature', 0.4],
+  ['language', 'literature', 0.6],
+  ['art', 'design', 0.6], ['art', 'fashion', 0.4],
+  ['design', 'fashion', 0.5],
+  ['fashion', 'fitness', 0.2], ['fashion', 'entertainment', 0.3],
+];
+
+// YouTube videoCategoryId → 도메인 가중치
+export const YT_CATEGORY_DOMAINS = {
+  '1': { film: 1 },
+  '2': { cars: 1 },
+  '10': { music: 1 },
+  '15': { animals: 1 },
+  '17': { sports: 1 },
+  '19': { travel: 1 },
+  '20': { games: 1 },
+  '23': { entertainment: 1 },
+  '24': { entertainment: 1 },
+  '25': { politics: 1 },
+  '26': { fashion: 0.5, cooking: 0.5 },
+  '28': { tech: 0.7, physics: 0.3 },
+};

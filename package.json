@@ -1,0 +1,11 @@
+{
+  "name": "slightly-off-recommender",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "유튜브 시청 기록 기반 '살짝 빗나간' 지식 추천 크롬 확장 프로그램",
+  "scripts": {
+    "test": "node --test 'tests/*.test.js'",
+    "package": "cd extension && zip -r ../slightly-off.zip . -x '.*'"
+  }
+}

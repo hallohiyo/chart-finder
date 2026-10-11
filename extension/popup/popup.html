@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <title>오늘의 추천</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <header>
+    <span class="brand">살짝 빗나간</span>
+    <span id="counter" class="counter"></span>
+  </header>
+
+  <main id="view">
+    <p class="muted">불러오는 중…</p>
+  </main>
+
+  <footer>
+    <span id="stats" class="muted"></span>
+    <button id="open-options" class="link">설정</button>
+  </footer>
+
+  <template id="tpl-rec">
+    <article class="card">
+      <p class="eyebrow">오늘의 주제</p>
+      <h1 class="title"></h1>
+      <p class="reason"></p>
+      <p class="anchor muted"></p>
+      <p class="summary"></p>
+      <a class="more" target="_blank" rel="noopener noreferrer">위키백과에서 더 알아보기 ↗</a>
+      <div class="reactions">
+        <button class="react" data-reaction="like">😄 재밌어요</button>
+        <button class="react" data-reaction="dislike">🤔 별로예요</button>
+      </div>
+      <p class="thanks muted" hidden></p>
+      <button class="next secondary" hidden>오늘 하나 더 보기</button>
+    </article>
+  </template>
+
+  <template id="tpl-empty">
+    <section class="empty">
+      <h1 class="empty-title"></h1>
+      <p class="empty-body muted"></p>
+      <button class="secondary to-options" hidden>설정 열기</button>
+    </section>
+  </template>
+
+  <script type="module" src="popup.js"></script>
+</body>
+</html>

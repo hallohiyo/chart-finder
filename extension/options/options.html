@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>살짝 빗나간 추천 · 설정</title>
+  <link rel="stylesheet" href="../popup/popup.css">
+  <link rel="stylesheet" href="options.css">
+</head>
+<body>
+  <div class="page">
+    <h1>살짝 빗나간 추천</h1>
+    <p class="muted">유튜브에서 본 영상을 바탕으로, 평소엔 안 보지만 관심사와 이어지는 주제를 하루 하나씩 추천해요.</p>
+
+    <section class="card">
+      <h2>개인정보 처리 방식</h2>
+      <ul class="privacy">
+        <li><strong>youtube.com 시청 페이지만</strong> 감지해요. 다른 사이트는 읽지 않아요.</li>
+        <li>15초 이상 머문 영상의 <strong>ID와 제목</strong>만 저장해요.</li>
+        <li>모든 데이터는 <strong>이 브라우저에만</strong> 저장되고, 관심 분석과 추천도 브라우저 안에서 계산돼요. 개발자 서버는 없어요.</li>
+        <li>API 키를 넣으면 영상 ID만 YouTube Data API(Google)로 보내 제목·설명·태그를 받아와요.</li>
+        <li>시크릿 모드에서는 동작하지 않아요. 언제든 수집을 멈추거나 데이터를 지울 수 있어요.</li>
+      </ul>
+    </section>
+
+    <section class="card">
+      <h2>수집 설정</h2>
+      <label class="row">
+        <input type="checkbox" id="paused">
+        <span>수집 일시정지</span>
+      </label>
+
+      <label class="field">
+        <span>YouTube Data API 키 <span class="muted">(선택)</span></span>
+        <input type="password" id="api-key" placeholder="AIza…" autocomplete="off" spellcheck="false">
+        <small class="muted">
+          없어도 영상 제목만으로 동작하지만, 키가 있으면 설명·태그·카테고리까지 써서 더 정확해져요.
+          <a href="https://console.cloud.google.com/apis/library/youtube.googleapis.com" target="_blank" rel="noopener noreferrer">Google Cloud Console</a>에서 YouTube Data API v3를 켜고 API 키를 만들어 주세요.
+          <span id="api-key-status"></span>
+        </small>
+      </label>
+
+      <label class="field">
+        <span>하루 추천 개수</span>
+        <select id="max-per-day">
+          <option value="1">1개 (권장)</option>
+          <option value="2">2개</option>
+          <option value="3">3개</option>
+        </select>
+      </label>
+
+      <button id="save" class="primary">저장</button>
+      <span id="save-status" class="muted"></span>
+    </section>
+
+    <section class="card">
+      <h2>지난 시청 기록 가져오기</h2>
+      <p class="muted">
+        처음 설치했을 때 빠르게 시작하고 싶다면, 최근 90일 방문 기록 중 <strong>youtube.com/watch</strong> 주소만 골라 가져올 수 있어요.
+        이 작업에만 방문 기록 권한을 잠시 요청하고, 끝나면 바로 권한을 반납해요.
+      </p>
+      <button id="import">유튜브 시청 기록 가져오기</button>
+      <span id="import-status" class="muted"></span>
+    </section>
+
+    <section class="card">
+      <h2>내 관심 지도</h2>
+      <p id="map-summary" class="muted"></p>
+      <ol id="clusters" class="clusters"></ol>
+      <p id="distance" class="muted"></p>
+    </section>
+
+    <section class="card danger-zone">
+      <h2>데이터 삭제</h2>
+      <p class="muted">저장된 시청 기록, 관심 지도, 추천·반응 기록을 모두 지워요. API 키와 설정은 유지돼요.</p>
+      <button id="clear" class="danger">모든 데이터 지우기</button>
+    </section>
+  </div>
+  <script type="module" src="options.js"></script>
+</body>
+</html>
