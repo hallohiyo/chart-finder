@@ -9,7 +9,13 @@ document.getElementById('open-options').addEventListener('click', () => chrome.r
 
 async function send(type, payload = {}) {
   const res = await chrome.runtime.sendMessage({ type, ...payload });
-  if (!res?.ok) throw new Error(res?.error ?? '알 수 없는 오류');
+  if (!res?.ok) {
+    // 화면은 새 버전인데 백그라운드가 옛 버전이면 이 오류가 난다 (업데이트 후 ↻ 를 안 누른 경우)
+    if (res?.error?.startsWith('unknown message')) {
+      throw new Error('확장 프로그램이 아직 예전 버전으로 돌고 있어요. chrome://extensions 에서 "살짝 빗나간 추천"의 새로고침(↻)을 누른 뒤 이 페이지를 다시 열어 주세요.');
+    }
+    throw new Error(res?.error ?? '알 수 없는 오류');
+  }
   return res.data;
 }
 
