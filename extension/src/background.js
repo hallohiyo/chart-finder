@@ -6,6 +6,7 @@ import { idbKv } from './lib/idb.js';
 import { loadBundledTopics } from './lib/bundled-data.js';
 import { fetchSummary } from './lib/wiki.js';
 import { parseWatchUrl, cleanPageTitle } from './lib/youtube.js';
+import { CODE_VERSION } from './version.js';
 
 const HISTORY_IMPORT_DAYS = 90;
 const YOUTUBE_ORIGIN = 'https://www.youtube.com';
@@ -35,6 +36,13 @@ function throttledStatus() {
 function warmUp() {
   engine.warmUp().catch((err) => console.warn('[살짝 빗나간] 모델 준비 실패:', err.message));
 }
+
+// 페이지가 버전 차이를 고치려고 확장 프로그램을 다시 불러왔다면, 그 페이지를 다시 열어 준다 (popup/messaging.js)
+chrome.storage.local.get('reopenAfterReload').then(({ reopenAfterReload }) => {
+  if (!reopenAfterReload) return;
+  chrome.storage.local.remove('reopenAfterReload');
+  if (reopenAfterReload === 'options') chrome.runtime.openOptionsPage();
+});
 
 chrome.runtime.onInstalled.addListener(({ reason }) => {
   chrome.alarms.create('enrich', { periodInMinutes: 60 });
@@ -78,6 +86,8 @@ async function handle(msg, sender) {
   // 나머지 메시지는 팝업/설정 페이지에서만 받는다
   if (!isExtensionPage(sender)) throw new Error('forbidden');
   switch (msg?.type) {
+    case 'ping':
+      return { version: CODE_VERSION };
     case 'getToday':
       return service.getToday();
     case 'next':

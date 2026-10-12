@@ -54,3 +54,5 @@ body { width: auto; }
 .recs li { margin-bottom: 10px; }
 .recs small { display: block; margin-top: 2px; }
 .warn { color: #c0392b; font-weight: 600; }
+
+.version { margin-top: 24px; font-size: 12px; text-align: center; }
